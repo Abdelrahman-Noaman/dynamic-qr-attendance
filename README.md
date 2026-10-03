@@ -1,72 +1,94 @@
 # Dynamic QR Attendance System
 
-> A short-lived, token-based attendance workflow built with n8n to reduce the abuse of static QR attendance.
+<p align="center">
+  <strong>Attendance that expires before it can be reused.</strong><br>
+  A short-lived, token-based attendance workflow built with <strong>n8n</strong>, webhooks, and Google Workspace.
+</p>
 
-This is an automation and software engineering project, not an AI model project. It demonstrates workflow orchestration, webhooks, API integration, state management, validation, cryptographic signing, and Google Workspace automation.
+This is an automation and software engineering project rather than an AI model project. It demonstrates workflow orchestration, API integration, temporary state management, server-side validation, cryptographic signing, and browser-to-workflow integration.
 
-## Problem
+## Recruiter-Focused Summary
 
-A static classroom QR code can be screenshotted and shared with someone who is not attending. The shared image remains useful until the code or attendance session changes.
+The project addresses a practical weakness in static QR attendance: a student can screenshot and share a QR code while the session is active. The system reduces that window by rotating the QR token every 10 seconds, validating scans in n8n, issuing a three-minute HMAC-SHA256 ticket, and validating the final submission before recording attendance.
 
-## Solution
+The implementation shows how a lightweight frontend can work with an automation backend to coordinate state, expiration, failure paths, persistence, and email notification without introducing a framework that the project does not need.
 
-The professor starts a session that displays a QR code containing a token valid for approximately 10 seconds. A student scan is checked by n8n. If valid, n8n issues a signed ticket that gives the student three minutes to complete the form. The final submission is verified again before it is written to Google Sheets and confirmed by Gmail.
+## Problem and Solution
+
+A static classroom QR code remains useful for too long. A shared screenshot may allow someone outside the classroom to submit attendance.
+
+This project replaces the permanent QR with a short-lived token. The browser displays the QR, but n8n remains responsible for deciding whether the session, token, ticket, and submission are valid.
 
 ## How It Works
 
 ```mermaid
-flowchart TD
-    P[Professor] --> S[Start attendance session]
-    S --> Q[Generate and rotate QR token every 10 seconds]
-    Q --> C[Student scans QR]
-    C --> V[Validate session and token]
-    V --> T[Issue signed ticket for 3 minutes]
-    T --> F[Student submits form]
-    F --> D[Validate ticket and check duplicate]
-    D --> G[Google Sheets]
+flowchart LR
+    P[Professor] --> S[Start session]
+    S --> T[Generate token]
+    T --> Q[Dynamic QR]
+    Q --> C[Student scans]
+    C --> V{Validate session and token}
+    V -->|Valid| K[Issue signed ticket]
+    V -->|Invalid| R[Reject request]
+    K --> F[Student submits form]
+    F --> X{Validate ticket and fields}
+    X -->|Valid| D{Duplicate check}
+    X -->|Invalid| R
+    D -->|New| G[Google Sheets]
+    D -->|Duplicate| R
     G --> E[Gmail confirmation]
-    P --> X[Stop session]
-    X --> V
+    P --> Z[Stop session]
+    Z --> V
 ```
+
+## Key Features
+
+| Feature | Behavior |
+| --- | --- |
+| Dynamic QR | The dashboard refreshes the token approximately every 10 seconds. |
+| Short-lived access | Expired tokens are rejected by the workflow. |
+| Signed tickets | A valid scan receives an HMAC-SHA256 ticket that expires after three minutes. |
+| Server-side validation | The browser is treated as untrusted input. |
+| Duplicate prevention | The workflow rejects an existing `(Session ID, Student ID)` pair. |
+| Session control | Starting and stopping attendance is controlled by protected professor endpoints. |
+| Google Sheets | Successful attendance is stored in the `Attendance` sheet. |
+| Gmail confirmation | A confirmation email is sent after attendance is recorded. |
+
+## Security Model
+
+1. The professor endpoints require a shared professor key.
+2. The active QR token is replaced after 10 seconds.
+3. `/dqr-check` verifies the active session, session ID, token, and token age.
+4. A valid scan receives a ticket containing the session ID, token, expiry timestamp, and HMAC-SHA256 signature.
+5. `/dqr-submit` recomputes the signature and verifies ticket expiry, active session, required fields, and basic email format.
+6. Google Sheets is checked before a new attendance row is appended.
+7. Stopping the session makes new scans and pending tickets invalid.
+
+The public workflow export contains placeholders instead of private secrets, OAuth credentials, private webhook URLs, or a real spreadsheet ID.
+
+## n8n Workflow
+
+The backend is exported in [n8n/dynamic-qr-attendance.json](n8n/dynamic-qr-attendance.json). The full stage-by-stage behavior is documented in [docs/workflow.md](docs/workflow.md), with component responsibilities and trust boundaries described in [docs/architecture.md](docs/architecture.md).
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/dqr-start` | POST | Create the active attendance session. |
+| `/dqr-qr` | GET | Return the current token or rotate it. |
+| `/dqr-stop` | POST | Close the active session. |
+| `/dqr-check` | GET | Validate a QR scan and issue a ticket. |
+| `/dqr-submit` | POST | Validate a ticket and record attendance. |
 
 ## Main Components
 
 | Component | Responsibility |
 | --- | --- |
-| n8n | Webhooks, session state, token validation, ticket signing, duplicate checks, and integrations |
-| Professor dashboard | Starts/stops sessions, polls the current QR, and shows the countdown |
-| Student page | Validates a scan and submits student details |
-| Google Sheets | Prototype attendance store and duplicate lookup |
-| Gmail | Confirmation email after a successful record |
-| QRCode.js | Renders the QR code in the professor page |
+| n8n | Webhooks, workflow static state, validation, signing, duplicate checks, and integrations. |
+| Professor dashboard | Starts/stops sessions, polls the QR, renders it with QRCode.js, and shows the countdown. |
+| Student page | Reads the QR parameters, validates the scan, and submits student details. |
+| Google Sheets | Prototype attendance store and duplicate lookup. |
+| Gmail | Confirmation email after a successful record. |
 
-## Security and Validation
-
-1. The professor endpoints require a shared key.
-2. The active token is replaced after 10 seconds.
-3. A scan must match the active session and token.
-4. The student ticket is HMAC-SHA256 signed and expires after three minutes.
-5. Submission validation checks the signature, expiry, active session, required fields, and basic email format.
-6. Google Sheets checks `(Session ID, Student ID)` before inserting a row.
-7. Stopping a session invalidates new scans and pending tickets.
-
-The browser is not trusted. The public export contains placeholders instead of secrets, credentials, private webhook URLs, or a real spreadsheet ID.
-
-## n8n Workflow
-
-The exported workflow is in [n8n/dynamic-qr-attendance.json](n8n/dynamic-qr-attendance.json). Detailed behavior is documented in [docs/workflow.md](docs/workflow.md), and component boundaries are documented in [docs/architecture.md](docs/architecture.md).
-
-Endpoints:
-
-| Endpoint | Method | Purpose |
-| --- | --- | --- |
-| `/dqr-start` | POST | Start a session |
-| `/dqr-qr` | GET | Return or rotate the current token |
-| `/dqr-stop` | POST | Stop a session |
-| `/dqr-check` | GET | Validate a QR scan and issue a ticket |
-| `/dqr-submit` | POST | Validate and record attendance |
-
-## Technologies
+## Technology Stack
 
 - n8n workflow automation
 - HTTP webhooks
@@ -100,7 +122,7 @@ Import [n8n/dynamic-qr-attendance.json](n8n/dynamic-qr-attendance.json) into n8n
 
 ### 2. Configure private values
 
-Replace these placeholders inside the imported workflow with private values before activation:
+Replace these placeholders in the imported workflow before activation:
 
 ```text
 REPLACE_WITH_PROF_KEY
@@ -108,17 +130,19 @@ REPLACE_WITH_SIGN_SECRET
 YOUR_GOOGLE_SHEET_ID
 ```
 
-Use long random values for the key and signing secret. Do not commit the configured export.
+Use long random values for the professor key and signing secret. Never commit the configured export.
 
 ### 3. Configure the frontend
 
-Update `N8N` in both HTML files to your n8n production webhook base URL. Update `STUDENT_URL` in the professor dashboard to the deployed student page URL. The professor page is opened with a key, for example:
+Update the `N8N` constant in [frontend/professor-dashboard.html](frontend/professor-dashboard.html) and [frontend/student-attendance.html](frontend/student-attendance.html) with your n8n production webhook base URL. Update `STUDENT_URL` in the professor dashboard to the deployed student page URL.
+
+Open the professor page with the configured key:
 
 ```text
 professor-dashboard.html?key=YOUR_PROF_KEY
 ```
 
-Use production webhook URLs when testing the complete workflow.
+Use production webhook URLs when testing the complete workflow because session state is stored in the active n8n workflow.
 
 ### 4. Prepare Google Sheets
 
@@ -128,58 +152,86 @@ Create an `Attendance` sheet with these headers:
 Session ID | Student ID | Student Name | Email | Attendance Time | Token | Status
 ```
 
-Format Student ID as plain text if leading zeros must be preserved.
+Format the Student ID column as plain text if leading zeros must be preserved.
 
 ### 5. Activate and test
 
-Activate the n8n workflow, open the professor dashboard, start a session, scan the current QR, submit test data, and verify the row and confirmation email. Use synthetic test data only.
+Use synthetic test data and verify these steps in order:
 
-## Example Attendance Flow
+```text
+Start session -> QR appears -> QR rotates -> scan current QR
+-> submit form -> Google Sheets row -> Gmail confirmation
+```
 
-1. The professor opens the dashboard and starts a lecture session.
-2. n8n creates the session and first token.
-3. The dashboard refreshes the QR as the token expires.
-4. A student scans the current QR.
-5. n8n validates the scan and issues a temporary ticket.
-6. The student submits name, student ID, and email.
-7. n8n validates the ticket and rejects duplicates.
-8. Google Sheets stores the new row.
-9. Gmail sends the confirmation.
-10. The professor stops the session.
+## Validation Scenarios
+
+| Scenario | Expected result |
+| --- | --- |
+| Current QR scanned | Accepted and ticket issued. |
+| Expired QR scanned | Rejected with `TOKEN_EXPIRED` or `TOKEN_INVALID`. |
+| Invalid session | Rejected. |
+| Invalid or expired ticket | Rejected. |
+| Duplicate Student ID in the session | Rejected with `DUPLICATE`. |
+| Missing required field | Rejected. |
+| Invalid email shape | Rejected. |
+| Session stopped | New scans and pending submissions rejected. |
+| Valid submission | Recorded and followed by a confirmation email attempt. |
 
 ## Known Limitations
 
-A rotating QR reduces the usefulness of old screenshots but cannot prove physical presence. A valid QR can still be relayed during its short lifetime. The prototype also uses n8n workflow static data, a shared professor key, wildcard webhook origins, and Google Sheets rather than a transactional database.
+Rotating QR tokens reduce the usefulness of screenshots but do not prove physical presence. A valid QR can still be relayed during its short lifetime.
 
-The current workflow validates email syntax but does not enforce a university domain. It supports one active session in the workflow state model.
+The current prototype also has these deliberate limitations:
+
+- One active session in the workflow static state model
+- Shared professor key rather than individual accounts
+- Wildcard webhook origins in the exported workflow
+- Google Sheets instead of a transactional database
+- Basic email syntax validation without university-domain enforcement
+- No dedicated production secrets manager
+- No strong physical-presence verification
 
 ## Future Improvements
 
-- University identity authentication
-- Domain-specific email validation
+- University identity authentication and role-based professor access
+- University-domain email verification
 - Rate limiting and stronger abuse monitoring
 - Database-backed shared session state
-- More robust audit logging
-- Role-based professor access
-- Replay-resistant submission handling
-- Production secrets management
-- Stronger physical-presence verification
+- More detailed audit logging
+- Stronger replay protection
+- Production-grade secrets management
+- Additional physical-presence verification
 
 ## What I Learned
 
-This project provided practical experience with event-driven workflows, webhook design, temporary session state, short-lived tokens, HMAC signing, API integrations, Google Workspace automation, and connecting lightweight browser interfaces to backend automation.
+This project provided practical experience with event-driven workflow design, HTTP webhooks, temporary session state, short-lived access tokens, HMAC signing, API integrations, Google Workspace automation, and validation failure paths.
+
+The central lesson was that automation is not only about connecting APIs. The important engineering work is defining state, expiration, trust boundaries, validation order, and the behavior of failure cases.
 
 ## Demo
 
-Add a public demo video link here:
+A public demo video can be added here when available:
 
-`[Watch the demo](YOUR_DEMO_VIDEO_URL)`
+`YOUR_DEMO_VIDEO_URL`
+
+Recommended demo sequence:
+
+```text
+Problem and idea -> Professor dashboard -> QR rotation
+-> Student submission -> Google Sheets -> Gmail -> n8n workflow
+```
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Workflow details](docs/workflow.md)
+- [n8n workflow export](n8n/dynamic-qr-attendance.json)
 
 ## Author
 
 **Abdelrahman Noaman**  
 Computer and Software Engineering Student, MUST  
-GitHub: [Abdelrahman-Noaman](https://github.com/Abdelrahman-Noaman)
+[GitHub: Abdelrahman-Noaman](https://github.com/Abdelrahman-Noaman)
 
 ## Suggested Repository Description
 
