@@ -202,8 +202,8 @@
 // ============================================================
 // ★ CONFIGURE THESE TWO CONSTANTS ★
 // ============================================================
-const N8N        = "https://YOUR_N8N_HOST/webhook/";   // your n8n webhook base URL (no trailing slash)
-const STUDENT_URL = "https://YOUR_USERNAME.github.io/YOUR_REPOSITORY/frontend/student-attendance.html"; // where student-attendance.html is hosted
+const N8N        = "https://tapiya2093.app.n8n.cloud/webhook";    // replace with your n8n production webhook base URL (no trailing slash)
+const STUDENT_URL = "https://abdelrahman-noaman.github.io/dynamic-qr-attendance/frontend/student-attendance.html"; // where student-attendance.html is hosted
 // ============================================================
 
 const params = new URLSearchParams(window.location.search);
@@ -222,6 +222,11 @@ let countdownRAF  = null;
 let running = false;
 
 function init() {
+  if (N8N.includes("YOUR_N8N_HOST")) {
+    setStatus("⚠️ Configure the n8n webhook URL in this file first", "status-error");
+    return;
+  }
+
   // On load, poll once to see if a session is already running (resume after refresh)
   fetchQR();
 }
