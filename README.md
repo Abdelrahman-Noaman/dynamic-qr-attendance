@@ -298,6 +298,15 @@ The professor dashboard allows the instructor to:
   <img src="images/professor-dashboard.png" alt="Professor Dashboard" width="800">
 </p>
 
+### 🔄 Dynamic QR Rotation
+
+The QR code automatically changes as the current token expires. This is the core behavior of the system.
+
+<!-- TODO: Add docs/gifs/qr-rotation.gif showing at least two QR rotations -->
+<p align="center">
+  <img src="docs/gifs/qr-rotation.gif" alt="Dynamic QR Rotation" width="500">
+</p>
+
 ### 👨‍🎓 Student Attendance
 
 After scanning the current QR, the student is taken to the attendance page.
