@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QR Attendance — Professor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+  }
+
+  h1 {
+    font-size: 1.8rem;
+    margin-bottom: 0.5rem;
+    color: #fff;
+  }
+
+  .subtitle {
+    font-size: 0.95rem;
+    color: #888;
+    margin-bottom: 2rem;
+  }
+
+  .controls {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 1.5rem;
+  }
+
+  label.lecture-label {
+    font-size: 0.9rem;
+    color: #aaa;
+  }
+
+  input#lecture {
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    border: 1px solid #444;
+    background: #16213e;
+    color: #fff;
+    font-size: 1rem;
+    width: 220px;
+    outline: none;
+  }
+
+  input#lecture:focus {
+    border-color: #0f3460;
+    box-shadow: 0 0 0 2px rgba(15,52,96,0.4);
+  }
+
+  button {
+    padding: 0.65rem 1.8rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+  }
+
+  button:active { transform: scale(0.97); }
+
+  .btn-start {
+    background: #00b894;
+    color: #fff;
+  }
+  .btn-start:hover { background: #00a381; }
+  .btn-start:disabled {
+    background: #444;
+    cursor: not-allowed;
+  }
+
+  .btn-stop {
+    background: #e17055;
+    color: #fff;
+  }
+  .btn-stop:hover { background: #c0543e; }
+  .btn-stop:disabled {
+    background: #444;
+    cursor: not-allowed;
+  }
+
+  #status {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+    min-height: 1.6rem;
+    text-align: center;
+  }
+
+  .status-running { color: #00b894; }
+  .status-stopped { color: #fdcb6e; }
+  .status-error   { color: #e17055; }
+
+  .qr-wrapper {
+    background: #ffffff;
+    padding: 24px;
+    border-radius: 16px;
+    display: none;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+
+  /* Force qrcodejs output to be big */
+  .qr-wrapper canvas,
+  .qr-wrapper img {
+    width: 360px !important;
+    height: 360px !important;
+    image-rendering: pixelated;
+  }
+
+  .countdown-track {
+    width: 360px;
+    height: 8px;
+    background: #333;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+    display: none;
+  }
+
+  .countdown-bar {
+    height: 100%;
+    background: #00b894;
+    border-radius: 4px;
+    width: 100%;
+    transition: none;
+  }
+
+  .countdown-text {
+    font-size: 0.85rem;
+    color: #888;
+    min-height: 1.2rem;
+    text-align: center;
+    margin-bottom: 1rem;
+  }
+
+  .key-missing {
+    background: #e17055;
+    color: #fff;
+    padding: 1rem 2rem;
+    border-radius: 10px;
+    font-size: 1.1rem;
+    text-align: center;
+    max-width: 500px;
+  }
+
+  .key-missing code {
+    background: rgba(0,0,0,0.2);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+<h1>📋 QR Attendance</h1>
+<p class="subtitle">Professor Control Panel</p>
+
+<div id="no-key" class="key-missing" style="display:none;">
+  Open this page with your key in the URL:<br>
+  <code>professor.html?key=YOUR_KEY</code>
+</div>
+
+<div id="main" style="display:none;">
+  <div class="controls">
+    <div>
+      <label class="lecture-label" for="lecture">Lecture name</label><br>
+      <input type="text" id="lecture" value="Data Security">
+    </div>
+    <button class="btn-start" id="btnStart" onclick="startSession()">▶ Start</button>
+    <button class="btn-stop"  id="btnStop"  onclick="stopSession()" disabled>■ Stop</button>
+  </div>
+
+  <div id="status"></div>
+
+  <div style="display:flex;flex-direction:column;align-items:center;">
+    <div class="countdown-track" id="countdownTrack">
+      <div class="countdown-bar" id="countdownBar"></div>
+    </div>
+    <div class="countdown-text" id="countdownText"></div>
+    <div class="qr-wrapper" id="qrWrapper">
+      <div id="qrcode"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// ★ CONFIGURE THESE TWO CONSTANTS ★
+// ============================================================
+const N8N        = "https://YOUR_N8N_HOST/webhook/";   // your n8n webhook base URL (no trailing slash)
+const STUDENT_URL = "https://YOUR_USERNAME.github.io/YOUR_REPOSITORY/frontend/student-attendance.html"; // where student-attendance.html is hosted
+// ============================================================
+
+const params = new URLSearchParams(window.location.search);
+const KEY    = params.get("key");
+
+if (!KEY) {
+  document.getElementById("no-key").style.display = "block";
+} else {
+  document.getElementById("main").style.display = "block";
+  init();
+}
+
+let qr = null;
+let refreshTimer = null;
+let countdownRAF  = null;
+let running = false;
+
+function init() {
+  // On load, poll once to see if a session is already running (resume after refresh)
+  fetchQR();
+}
+
+// ---- Status helpers ----
+function setStatus(msg, cls) {
+  const el = document.getElementById("status");
+  el.textContent = msg;
+  el.className = cls || "";
+}
+
+// ---- API helpers ----
+async function apiPost(endpoint, body) {
+  const res = await fetch(`${N8N}/${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(body),
+  });
+  return res.json();
+}
+
+async function apiGet(endpoint, params) {
+  const url = `${N8N}/${endpoint}?${new URLSearchParams(params)}`;
+  const res = await fetch(url);
+  return res.json();
+}
+
+// ---- Start ----
+async function startSession() {
+  const btn = document.getElementById("btnStart");
+  btn.disabled = true;
+  setStatus("Starting…", "status-running");
+
+  try {
+    const data = await apiPost("dqr-start", {
+      key: KEY,
+      lecture: document.getElementById("lecture").value.trim() || "Lecture",
+    });
+
+    if (!data.ok) {
+      setStatus(data.error === "unauthorized" ? "❌ Wrong key" : `❌ ${data.error}`, "status-error");
+      btn.disabled = false;
+      return;
+    }
+
+    running = true;
+    document.getElementById("btnStop").disabled = false;
+    document.getElementById("lecture").disabled = true;
+    fetchQR();
+  } catch (e) {
+    setStatus("❌ Network error — is n8n reachable?", "status-error");
+    btn.disabled = false;
+  }
+}
+
+// ---- Stop ----
+async function stopSession() {
+  const btn = document.getElementById("btnStop");
+  btn.disabled = true;
+  clearTimeout(refreshTimer);
+  cancelAnimationFrame(countdownRAF);
+
+  setStatus("Stopping…", "status-stopped");
+
+  try {
+    await apiPost("dqr-stop", { key: KEY });
+  } catch (e) {
+    setStatus("❌ Network error while stopping", "status-error");
+    btn.disabled = false;
+    return;
+  }
+
+  running = false;
+
+  // Wait 1.5s, then verify it's actually stopped
+  setTimeout(async () => {
+    try {
+      const data = await apiGet("dqr-qr", { key: KEY });
+      if (data.ok && data.active) {
+        // Still running?! Let the prof try again
+        setStatus("⚠️ Session still appears active — try Stop again", "status-error");
+        running = true;
+        btn.disabled = false;
+        showQR(data);
+      } else {
+        hideQR();
+        setStatus("✅ Session stopped", "status-stopped");
+        document.getElementById("btnStart").disabled = false;
+        document.getElementById("lecture").disabled = false;
+      }
+    } catch (e) {
+      hideQR();
+      setStatus("Session stopped (couldn't verify)", "status-stopped");
+      document.getElementById("btnStart").disabled = false;
+      document.getElementById("lecture").disabled = false;
+    }
+  }, 1500);
+}
+
+// ---- Fetch QR / token ----
+async function fetchQR() {
+  clearTimeout(refreshTimer);
+
+  try {
+    const data = await apiGet("dqr-qr", { key: KEY });
+
+    if (!data.ok) {
+      setStatus("❌ " + (data.error || "Unknown error"), "status-error");
+      return;
+    }
+
+    if (!data.active) {
+      // No active session
+      if (!running) {
+        hideQR();
+        // Don't overwrite a "stopped" message on init
+      }
+      return;
+    }
+
+    // Active session — show/update QR
+    running = true;
+    document.getElementById("btnStart").disabled = true;
+    document.getElementById("btnStop").disabled = false;
+    document.getElementById("lecture").disabled = true;
+    document.getElementById("lecture").value = data.lecture || "Lecture";
+
+    showQR(data);
+    setStatus(`🟢 Running — ${data.lecture}`, "status-running");
+
+    // Schedule next fetch at expiresInMs + 200ms
+    const delay = (data.expiresInMs || 10000) + 200;
+    refreshTimer = setTimeout(fetchQR, delay);
+
+    // Start countdown animation
+    startCountdown(data.expiresInMs || 10000);
+
+  } catch (e) {
+    setStatus("❌ Network error — retrying in 5s", "status-error");
+    refreshTimer = setTimeout(fetchQR, 5000);
+  }
+}
+
+// ---- QR display ----
+function showQR(data) {
+  const wrapper = document.getElementById("qrWrapper");
+  wrapper.style.display = "block";
+
+  const url = `${STUDENT_URL}?s=${encodeURIComponent(data.sessionId)}&t=${encodeURIComponent(data.token)}`;
+
+  if (!qr) {
+    document.getElementById("qrcode").innerHTML = "";
+    qr = new QRCode(document.getElementById("qrcode"), {
+      text: url,
+      width: 360,
+      height: 360,
+      colorDark: "#000000",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+  } else {
+    qr.makeCode(url);
+  }
+}
+
+function hideQR() {
+  document.getElementById("qrWrapper").style.display = "none";
+  document.getElementById("countdownTrack").style.display = "none";
+  document.getElementById("countdownText").textContent = "";
+  cancelAnimationFrame(countdownRAF);
+}
+
+// ---- Countdown bar ----
+function startCountdown(durationMs) {
+  const track = document.getElementById("countdownTrack");
+  const bar   = document.getElementById("countdownBar");
+  const text  = document.getElementById("countdownText");
+  track.style.display = "block";
+
+  const start = performance.now();
+  cancelAnimationFrame(countdownRAF);
+
+  function tick(now) {
+    const elapsed = now - start;
+    const remaining = Math.max(0, durationMs - elapsed);
+    const pct = (remaining / durationMs) * 100;
+
+    bar.style.width = pct + "%";
+
+    // Color shift: green → yellow → red
+    if (pct > 50) bar.style.background = "#00b894";
+    else if (pct > 20) bar.style.background = "#fdcb6e";
+    else bar.style.background = "#e17055";
+
+    text.textContent = `Next token in ${Math.ceil(remaining / 1000)}s`;
+
+    if (remaining > 0) {
+      countdownRAF = requestAnimationFrame(tick);
+    } else {
+      text.textContent = "Refreshing…";
+    }
+  }
+
+  countdownRAF = requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>

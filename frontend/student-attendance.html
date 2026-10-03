@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Record Attendance</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --card: #f8f9fa;
+    --text: #1a1a2e;
+    --muted: #6c757d;
+    --accent: #0984e3;
+    --accent-hover: #0770c2;
+    --success: #00b894;
+    --error: #e17055;
+    --input-bg: #ffffff;
+    --input-border: #ced4da;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a2e;
+      --card: #16213e;
+      --text: #e0e0e0;
+      --muted: #888;
+      --input-bg: #0f3460;
+      --input-border: #444;
+    }
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 2rem 1.5rem;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+  }
+
+  h1 {
+    font-size: 1.5rem;
+    text-align: center;
+    margin-bottom: 0.25rem;
+  }
+
+  .lecture-name {
+    text-align: center;
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 1.1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 0.3rem;
+    margin-top: 1rem;
+  }
+
+  label:first-of-type { margin-top: 0; }
+
+  input {
+    width: 100%;
+    padding: 0.85rem 1rem;
+    border: 2px solid var(--input-border);
+    border-radius: 10px;
+    background: var(--input-bg);
+    color: var(--text);
+    font-size: 1rem;
+    outline: none;
+    -webkit-appearance: none;
+  }
+
+  input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(9,132,227,0.2);
+  }
+
+  button.submit {
+    width: 100%;
+    margin-top: 1.5rem;
+    padding: 1rem;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 1.1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  button.submit:hover { background: var(--accent-hover); }
+
+  button.submit:disabled {
+    background: var(--muted);
+    cursor: not-allowed;
+  }
+
+  .msg {
+    text-align: center;
+    padding: 1rem;
+    border-radius: 10px;
+    margin-top: 1rem;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+
+  .msg-error {
+    background: rgba(225,112,85,0.15);
+    color: var(--error);
+  }
+
+  .msg-success {
+    background: rgba(0,184,148,0.15);
+    color: var(--success);
+  }
+
+  .success-screen {
+    text-align: center;
+  }
+
+  .success-screen .checkmark {
+    font-size: 4rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .success-screen h1 {
+    color: var(--success);
+    margin-bottom: 0.5rem;
+  }
+
+  .success-screen p {
+    color: var(--muted);
+  }
+
+  .loading {
+    text-align: center;
+    color: var(--muted);
+    font-size: 1.1rem;
+    padding: 2rem;
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 28px;
+    height: 28px;
+    border: 3px solid var(--input-border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-bottom: 0.75rem;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div class="card" id="card">
+  <!-- Loading state -->
+  <div id="viewLoading" class="loading">
+    <div class="spinner"></div>
+    <div>Verifying QR code…</div>
+  </div>
+
+  <!-- Error state -->
+  <div id="viewError" style="display:none;">
+    <h1>😕</h1>
+    <div class="msg msg-error" id="errorMsg"></div>
+  </div>
+
+  <!-- Form state -->
+  <div id="viewForm" style="display:none;">
+    <h1>📋 Record Attendance</h1>
+    <div class="lecture-name" id="lectureName"></div>
+
+    <form id="attendanceForm" onsubmit="return submitForm(event)">
+      <label for="name">Full Name</label>
+      <input type="text" id="name" required autocomplete="name" placeholder="Jane Doe">
+
+      <label for="studentId">University / Student ID</label>
+      <input type="text" id="studentId" required placeholder="202312345">
+
+      <label for="email">University Email</label>
+      <input type="email" id="email" required autocomplete="email" placeholder="jane@university.edu">
+
+      <button type="submit" class="submit" id="btnSubmit">Submit Attendance</button>
+    </form>
+
+    <div class="msg msg-error" id="formError" style="display:none;"></div>
+  </div>
+
+  <!-- Success state -->
+  <div id="viewSuccess" class="success-screen" style="display:none;">
+    <div class="checkmark">✅</div>
+    <h1>Attendance Recorded!</h1>
+    <p>A confirmation email is on the way.<br>You can close this page.</p>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// ★ CONFIGURE THIS CONSTANT ★
+// ============================================================
+const N8N = "https://YOUR_N8N_HOST/webhook/";   // your n8n webhook base URL (no trailing slash)
+// ============================================================
+
+let ticket = null;
+
+// ---- Reason code → friendly message ----
+const MESSAGES = {
+  TOKEN_EXPIRED:  "This QR has expired. Please scan the one currently on the screen.",
+  TOKEN_INVALID:  "This QR has expired. Please scan the one currently on the screen.",
+  SESSION_CLOSED: "This attendance session has ended. You can no longer check in.",
+  WRONG_SESSION:  "This QR code doesn't match the active session.",
+  TICKET_EXPIRED: "Your submission window expired (3 min). Please scan the QR again.",
+  BAD_TICKET:     "Invalid submission ticket. Please scan the QR again.",
+  DUPLICATE:      "You've already recorded your attendance for this session!",
+  BAD_EMAIL:      "Please use a valid university email address.",
+  MISSING_FIELDS: "Please fill in all fields.",
+};
+
+function friendlyError(reason) {
+  return MESSAGES[reason] || reason || "Something went wrong. Please try again.";
+}
+
+// ---- Views ----
+function showView(id) {
+  ["viewLoading", "viewError", "viewForm", "viewSuccess"].forEach(v => {
+    document.getElementById(v).style.display = v === id ? "block" : "none";
+  });
+}
+
+// ---- On load: grab params, clean URL, check token ----
+(async function () {
+  const params = new URLSearchParams(window.location.search);
+  const s = params.get("s");
+  const t = params.get("t");
+
+  // Remove sensitive params from address bar immediately
+  if (s || t) {
+    history.replaceState(null, "", window.location.pathname);
+  }
+
+  if (!s || !t) {
+    showView("viewError");
+    document.getElementById("errorMsg").textContent =
+      "Missing QR data. Please scan the QR code shown on the projector.";
+    return;
+  }
+
+  try {
+    const res = await fetch(`${N8N}/dqr-check?s=${encodeURIComponent(s)}&t=${encodeURIComponent(t)}`);
+    const data = await res.json();
+
+    if (!data.ok) {
+      showView("viewError");
+      document.getElementById("errorMsg").textContent = friendlyError(data.reason);
+      return;
+    }
+
+    // Valid — show form
+    ticket = data.ticket;
+    document.getElementById("lectureName").textContent = data.lecture || "Lecture";
+    showView("viewForm");
+
+  } catch (e) {
+    showView("viewError");
+    document.getElementById("errorMsg").textContent =
+      "Network error — check your connection and try scanning again.";
+  }
+})();
+
+// ---- Submit ----
+async function submitForm(e) {
+  e.preventDefault();
+
+  const btn = document.getElementById("btnSubmit");
+  const errEl = document.getElementById("formError");
+  errEl.style.display = "none";
+  btn.disabled = true;
+  btn.textContent = "Submitting…";
+
+  const name      = document.getElementById("name").value.trim();
+  const studentId = document.getElementById("studentId").value.trim();
+  const email     = document.getElementById("email").value.trim();
+
+  if (!name || !studentId || !email) {
+    errEl.textContent = friendlyError("MISSING_FIELDS");
+    errEl.style.display = "block";
+    btn.disabled = false;
+    btn.textContent = "Submit Attendance";
+    return false;
+  }
+
+  try {
+    const res = await fetch(`${N8N}/dqr-submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ ticket, name, studentId, email }),
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      errEl.textContent = friendlyError(data.reason);
+      errEl.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = "Submit Attendance";
+
+      // If ticket expired, they need to re-scan
+      if (data.reason === "TICKET_EXPIRED" || data.reason === "BAD_TICKET") {
+        btn.style.display = "none";
+      }
+      return false;
+    }
+
+    showView("viewSuccess");
+
+  } catch (e) {
+    errEl.textContent = "Network error — please try again.";
+    errEl.style.display = "block";
+    btn.disabled = false;
+    btn.textContent = "Submit Attendance";
+  }
+
+  return false;
+}
+</script>
+</body>
+</html>

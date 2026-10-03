@@ -1,0 +1,16 @@
+# Local secrets and environment files
+.env
+.env.*
+!.env.example
+
+# n8n exports and local state
+.n8n/
+
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Local test data
+attendance-export*.csv
+*.log

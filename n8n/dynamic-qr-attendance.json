@@ -1,0 +1,848 @@
+{
+  "name": "Dynamic QR Attendance",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# 🔐 Dynamic QR Attendance System\n\nAutomated attendance system for Data Security lectures using short-lived QR tokens.\n\n### How it works\n\n* Professor starts an attendance session.\n* n8n generates a unique session and a QR token.\n* The QR token automatically rotates every **10 seconds**.\n* Students scan the current QR and submit their name, student ID, and email.\n* n8n validates the session and token before accepting the attendance.\n* A signed temporary ticket allows students enough time to complete the form without requiring the QR token to remain valid.\n* Duplicate attendance for the same student and session is rejected.\n* Valid attendance is recorded automatically in **Google Sheets**.\n* A professional **confirmation email** is sent to the student immediately after successful registration.\n* When the professor stops the session, all pending tickets become invalid and new submissions are rejected.\n\n### Main Components\n\n**n8n** → Automation & validation\n**Dynamic QR** → Short-lived access token\n**Google Sheets** → Attendance records\n**Gmail** → Attendance confirmation\n**HTML Pages** → Professor dashboard & student submission page\n\n### Security Concept\n\nThe QR code itself is not a permanent attendance link. Each QR contains a short-lived token that expires after 10 seconds, reducing the risk of students using an old QR code outside the classroom.\n\n> **Start → Generate → Rotate → Scan → Validate → Record → Confirm → Stop**\n",
+        "height": 588,
+        "width": 1036
+      },
+      "id": "e52b6665-e2d0-4169-9ecd-c282e3f72f1a",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1488,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "dqr-start",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "6a1d4ff7-caef-4e65-96e7-cb7389cdae0d",
+      "name": "Webhook Start",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        560,
+        64
+      ],
+      "webhookId": "8e1b212d-1aaa-4a39-a2a3-cdba8f49e93a"
+    },
+    {
+      "parameters": {
+        "jsCode": "const KEY = 'REPLACE_WITH_PROF_KEY';\nconst b = $input.first().json.body || {};\nif (b.key !== KEY) return [{ json: { ok: false, error: 'unauthorized' } }];\n\nconst rand = (n) => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };\nconst wf = $getWorkflowStaticData('global');\nconst sessionId = 'S' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + rand(4);\nwf.session = {\n  active: true,\n  sessionId,\n  lecture: String(b.lecture || 'Lecture').trim(),\n  token: rand(6),\n  issuedAt: Date.now()\n};\nreturn [{ json: { ok: true, sessionId, lecture: wf.session.lecture } }];"
+      },
+      "id": "2f16f0d1-52fa-4c3c-a7a9-1f5b8400a7c2",
+      "name": "Create Session",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "cc64ac4f-46e2-4373-9313-9306a28fa501",
+      "name": "Respond Start",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1088,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "path": "dqr-qr",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "4c5f31ce-c66e-49cc-8d67-8420002d8685",
+      "name": "Webhook QR",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        560,
+        288
+      ],
+      "webhookId": "131766c8-7806-42b7-abc3-389fb2c23ba0"
+    },
+    {
+      "parameters": {
+        "jsCode": "const KEY = 'REPLACE_WITH_PROF_KEY';\nconst q = $input.first().json.query || {};\nif (q.key !== KEY) return [{ json: { ok: false, error: 'unauthorized' } }];\n\nconst wf = $getWorkflowStaticData('global');\nconst s = wf.session;\nif (!s || !s.active) return [{ json: { ok: true, active: false } }];\n\nconst TTL = 10000;\nconst rand = (n) => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };\nconst now = Date.now();\nif (now - s.issuedAt >= TTL) {\n  s.token = rand(6); // old token is overwritten = invalid\n  s.issuedAt += TTL * Math.floor((now - s.issuedAt) / TTL); // keep a clean 10s grid\n}\nreturn [{ json: {\n  ok: true, active: true,\n  sessionId: s.sessionId, lecture: s.lecture,\n  token: s.token,\n  expiresInMs: TTL - (Date.now() - s.issuedAt)\n} }];"
+      },
+      "id": "1fb4aa4c-77f3-491d-9779-2fbd94505663",
+      "name": "Rotate If Needed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "d4aaceaf-dcc3-4439-92d3-1031b1fe8401",
+      "name": "Respond QR",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1088,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "dqr-stop",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "dd0f1d1c-fa57-45b3-85d2-8f878b49430f",
+      "name": "Webhook Stop",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        560,
+        512
+      ],
+      "webhookId": "78bef4ee-a8cb-47ce-b477-61db5ba90ef3"
+    },
+    {
+      "parameters": {
+        "jsCode": "const KEY = 'REPLACE_WITH_PROF_KEY';\nif (($input.first().json.body || {}).key !== KEY) return [{ json: { ok: false } }];\nconst wf = $getWorkflowStaticData('global');\nif (wf.session) { wf.session.active = false; wf.session.token = null; }\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "fd534d55-c87c-4b8b-a151-0c748373e69b",
+      "name": "Stop Session",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "68987f21-112f-4fd4-8d54-d07144125273",
+      "name": "Respond Stop",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1088,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "path": "dqr-check",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "c6bd12d9-eef5-42ea-bae8-a628736fe940",
+      "name": "Webhook Check",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        560,
+        768
+      ],
+      "webhookId": "c7388650-3811-4f85-9844-52149f4885d5"
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = $input.first().json.query || {};\nconst s = String(q.s || '');\nconst t = String(q.t || '').toUpperCase();\nconst ses = $getWorkflowStaticData('global').session;\nconst now = Date.now();\nlet reason = '';\nif (!ses || !ses.active) reason = 'SESSION_CLOSED';\nelse if (ses.sessionId !== s) reason = 'WRONG_SESSION';\nelse if (now - ses.issuedAt >= 10000) reason = 'TOKEN_EXPIRED';\nelse if (ses.token !== t) reason = 'TOKEN_INVALID';\n\nconst exp = now + 3 * 60 * 1000; // ticket lifetime: 3 minutes\nreturn [{ json: {\n  valid: reason === '', reason,\n  lecture: ses ? ses.lecture : '',\n  payload: `${s}.${t}.${exp}`\n} }];"
+      },
+      "id": "6c4ec46b-9abd-4ef9-a5d8-6da7cab470b9",
+      "name": "Validate Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b867c771-8285-48e4-8679-92d27d4ffe14",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f07f6f34-5641-48a4-b9fd-88c9144c681b",
+      "name": "Token OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1088,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "value": "={{ $json.payload }}",
+        "dataPropertyName": "sig",
+        "secret": "REPLACE_WITH_SIGN_SECRET"
+      },
+      "id": "9e4e09f9-497e-4d67-a5fb-c5a841559da4",
+      "name": "Sign Ticket",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, lecture: $json.lecture, ticket: $json.payload + '.' + $json.sig } }}",
+        "options": {}
+      },
+      "id": "a797dcf6-5d4c-4bf0-86ba-32d95f94648c",
+      "name": "Respond Ticket",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1600,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, reason: $json.reason } }}",
+        "options": {}
+      },
+      "id": "c6a97d8a-3bae-4829-962a-53a69f20c09a",
+      "name": "Respond Token Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "dqr-submit",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "0405a3e0-3170-4988-bd8b-c3907c2e8ba3",
+      "name": "Webhook Submit",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        560,
+        1120
+      ],
+      "webhookId": "2d317b41-22d8-41bf-9f87-ef18a12bb1f0"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $input.first().json.body || {};\nconst [sessionId, token, exp, sig] = String(b.ticket || '').split('.');\nreturn [{ json: {\n  sessionId, token, exp: Number(exp), sig,\n  payload: `${sessionId}.${token}.${exp}`,\n  name: String(b.name || '').trim(),\n  studentId: String(b.studentId || '').trim(),\n  email: String(b.email || '').trim().toLowerCase()\n} }];"
+      },
+      "id": "042ca026-fbd3-4094-b02f-eed266f0f1d7",
+      "name": "Parse Submission",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "value": "={{ $json.payload }}",
+        "dataPropertyName": "expectedSig",
+        "secret": "REPLACE_WITH_SIGN_SECRET"
+      },
+      "id": "3d570d6b-a1db-41a6-ad5e-51d499642cb3",
+      "name": "Verify Ticket Signature",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        1088,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nconst s = $getWorkflowStaticData('global').session;\nlet reason = '';\nif (j.sig !== j.expectedSig) reason = 'BAD_TICKET';\nelse if (Date.now() > j.exp) reason = 'TICKET_EXPIRED';\nelse if (!s || !s.active || s.sessionId !== j.sessionId) reason = 'SESSION_CLOSED';\nelse if (!j.name || !j.studentId) reason = 'MISSING_FIELDS';\nelse if (!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(j.email)) reason = 'BAD_EMAIL';\n// optional: else if (!j.email.endsWith('@your-university.edu')) reason = 'BAD_EMAIL';\nreturn [{ json: { ...j, valid: reason === '', reason, lecture: s ? s.lecture : '' } }];"
+      },
+      "id": "d59cc6c1-727f-4869-aec9-555312d86d15",
+      "name": "Validate Submission",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "af32e8d9-7d12-489b-ab77-df0a81d9d8d6",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c5450ccf-0335-4203-96fe-9e8ee65420f1",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1600,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, reason: $json.reason } }}",
+        "options": {}
+      },
+      "id": "16758946-1edc-4adb-9159-28303380bb43",
+      "name": "Respond Submit Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1872,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Attendance",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Session ID",
+              "lookupValue": "={{ $('Validate Submission').first().json.sessionId }}"
+            },
+            {
+              "lookupColumn": "Student ID",
+              "lookupValue": "={{ $('Validate Submission').first().json.studentId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d3ab484e-008e-4725-be68-bcd53bf468f6",
+      "name": "Check Duplicate",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1872,
+        1072
+      ],
+      "retryOnFail": true,
+      "alwaysOutputData": true,
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1562c3b-ae2e-434a-b6d8-db1b8062acf3",
+              "leftValue": "={{ $json['Student ID'] || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a713aa94-c975-4355-a5b5-fef8a8522c97",
+      "name": "Already Submitted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2128,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, reason: 'DUPLICATE' } }}",
+        "options": {}
+      },
+      "id": "aecd5d0b-ab01-4078-af33-fb22dc8a800f",
+      "name": "Respond Duplicate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2384,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Attendance",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Session ID": "={{ $('Validate Submission').first().json.sessionId }}",
+            "Student ID": "={{ $('Validate Submission').first().json.studentId }}",
+            "Student Name": "={{ $('Validate Submission').first().json.name }}",
+            "Email": "={{ $('Validate Submission').first().json.email }}",
+            "Attendance Time": "={{ $now.toFormat('yyyy-MM-dd HH:mm:ss') }}",
+            "Token": "={{ $('Validate Submission').first().json.token }}",
+            "Status": "Present"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Session ID",
+              "displayName": "Session ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Student ID",
+              "displayName": "Student ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Student Name",
+              "displayName": "Student Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Attendance Time",
+              "displayName": "Attendance Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Token",
+              "displayName": "Token",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2eeff30f-c2f1-42a3-8901-7bb9b885a838",
+      "name": "Save Attendance",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2384,
+        1168
+      ],
+      "retryOnFail": true,
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true } }}",
+        "options": {}
+      },
+      "id": "6eaaab37-25f8-4507-8c6e-b0cbaeab76c2",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        1168
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Validate Submission').first().json.email }}",
+        "subject": "=Attendance Confirmed — {{ $('Validate Submission').first().json.lecture }}",
+        "message": "=<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>Attendance Confirmed</title>\n</head>\n\n<body style=\"margin:0; padding:0; background-color:#f4f7fb; font-family:Arial, Helvetica, sans-serif; color:#172033;\">\n\n  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background-color:#f4f7fb; padding:40px 15px;\">\n    <tr>\n      <td align=\"center\">\n\n        <!-- Main Container -->\n        <table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"\n          style=\"max-width:600px; width:100%; background:#ffffff; border-radius:18px; overflow:hidden; box-shadow:0 8px 30px rgba(15,23,42,0.08);\">\n\n          <!-- Header -->\n          <tr>\n            <td style=\"background:#0f172a; padding:32px 40px; text-align:center;\">\n\n              <div style=\"font-size:14px; font-weight:bold; letter-spacing:2px; color:#94a3b8; text-transform:uppercase;\">\n                Data Security\n              </div>\n\n              <div style=\"font-size:28px; font-weight:700; color:#ffffff; margin-top:10px;\">\n                Attendance Confirmed\n              </div>\n\n              <div style=\"font-size:14px; color:#cbd5e1; margin-top:8px;\">\n                Your attendance has been successfully recorded.\n              </div>\n\n            </td>\n          </tr>\n\n          <!-- Success Icon -->\n          <tr>\n            <td align=\"center\" style=\"padding:32px 40px 10px 40px;\">\n\n              <div style=\"\n                width:64px;\n                height:64px;\n                line-height:64px;\n                background:#ecfdf5;\n                border-radius:50%;\n                color:#16a34a;\n                font-size:32px;\n                font-weight:bold;\n                margin:auto;\n              \">\n                ✓\n              </div>\n\n            </td>\n          </tr>\n\n          <!-- Message -->\n          <tr>\n            <td style=\"padding:20px 45px 10px 45px; text-align:center;\">\n\n              <div style=\"font-size:16px; line-height:1.7; color:#475569;\">\n                Your attendance for today's\n                <strong style=\"color:#0f172a;\">\n                  {{ $('Validate Submission').first().json.lecture }}\n                </strong>\n                lecture has been successfully recorded.\n              </div>\n\n            </td>\n          </tr>\n\n          <!-- Attendance Details -->\n          <tr>\n            <td style=\"padding:25px 45px;\">\n\n              <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"\n                style=\"background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px;\">\n\n                <tr>\n                  <td style=\"padding:18px 20px; border-bottom:1px solid #e2e8f0;\">\n                    <span style=\"font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:0.8px;\">\n                      Status\n                    </span>\n                    <br>\n                    <span style=\"font-size:16px; font-weight:700; color:#16a34a;\">\n                      ● Present\n                    </span>\n                  </td>\n                </tr>\n\n                <tr>\n                  <td style=\"padding:18px 20px; border-bottom:1px solid #e2e8f0;\">\n                    <span style=\"font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:0.8px;\">\n                      Lecture\n                    </span>\n                    <br>\n                    <span style=\"font-size:16px; font-weight:600; color:#0f172a;\">\n                      {{ $('Validate Submission').first().json.lecture }}\n                    </span>\n                  </td>\n                </tr>\n\n                <tr>\n                  <td style=\"padding:18px 20px;\">\n                    <span style=\"font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:0.8px;\">\n                      Recorded At\n                    </span>\n                    <br>\n                    <span style=\"font-size:16px; font-weight:600; color:#0f172a;\">\n                      {{ $now.toFormat('yyyy-MM-dd · HH:mm') }}\n                    </span>\n                  </td>\n                </tr>\n\n              </table>\n\n            </td>\n          </tr>\n\n          <!-- Confirmation Message -->\n          <tr>\n            <td style=\"padding:5px 45px 30px 45px; text-align:center;\">\n\n              <div style=\"font-size:14px; line-height:1.6; color:#64748b;\">\n                You don't need to take any further action.\n                This email confirms that your attendance has been registered successfully.\n              </div>\n\n            </td>\n          </tr>\n\n          <!-- Footer -->\n          <tr>\n            <td style=\"background:#f8fafc; border-top:1px solid #e2e8f0; padding:24px 40px; text-align:center;\">\n\n              <div style=\"font-size:13px; font-weight:600; color:#334155;\">\n                {{ $('Validate Submission').first().json.lecture }} Attendance System\n              </div>\n\n              <div style=\"font-size:12px; color:#94a3b8; margin-top:7px;\">\n                Automated attendance confirmation\n              </div>\n\n              <div style=\"font-size:11px; color:#cbd5e1; margin-top:14px;\">\n                Please do not reply to this automated email.\n              </div>\n\n            </td>\n          </tr>\n\n        </table>\n\n      </td>\n    </tr>\n  </table>\n\n</body>\n</html>",
+        "options": {
+          "appendAttribution": false,
+          "senderName": "Attendance System"
+        }
+      },
+      "id": "d25acb69-adc6-4140-9241-fe966c7ef6d2",
+      "name": "Send Confirmation Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2912,
+        1168
+      ],
+      "webhookId": "2c6831c3-10db-42c8-b675-027fb74b9a07",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Start": {
+      "main": [
+        [
+          {
+            "node": "Create Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Session": {
+      "main": [
+        [
+          {
+            "node": "Respond Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook QR": {
+      "main": [
+        [
+          {
+            "node": "Rotate If Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rotate If Needed": {
+      "main": [
+        [
+          {
+            "node": "Respond QR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Stop": {
+      "main": [
+        [
+          {
+            "node": "Stop Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stop Session": {
+      "main": [
+        [
+          {
+            "node": "Respond Stop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Check": {
+      "main": [
+        [
+          {
+            "node": "Validate Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Token": {
+      "main": [
+        [
+          {
+            "node": "Token OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token OK?": {
+      "main": [
+        [
+          {
+            "node": "Sign Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Token Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign Ticket": {
+      "main": [
+        [
+          {
+            "node": "Respond Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Submit": {
+      "main": [
+        [
+          {
+            "node": "Parse Submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Submission": {
+      "main": [
+        [
+          {
+            "node": "Verify Ticket Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Ticket Signature": {
+      "main": [
+        [
+          {
+            "node": "Validate Submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Submission": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Submit Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Already Submitted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Submitted?": {
+      "main": [
+        [
+          {
+            "node": "Respond Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Attendance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Attendance": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond Success": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "cfd73138-d78b-4852-9f35-8c92776068f7",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ac94d743c854da70c95b23b05e6c70bba40728d9163b4a0025a8165a73d2c6e4"
+  },
+  "nodeGroups": [],
+  "id": "v09ZgtXM8K7rYrMZ",
+  "tags": []
+}
