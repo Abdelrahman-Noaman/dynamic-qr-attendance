@@ -51,7 +51,14 @@ device ID, student name, email, timestamp, token, and `Present` status.
 
 ## 9. Send Confirmation
 
-The Gmail node sends an HTML confirmation email using the submitted email address and lecture name. The attendance success response is produced before the email node, and the Gmail node is configured to continue on regular errors.
+After attendance is saved, the `Use Outlook Email?` node routes the confirmation
+by recipient domain. Addresses ending in `outlook.com`, `hotmail.com`, `live.com`, `msn.com`, or
+`must.edu.eg` use the Microsoft Outlook node; all other addresses use Gmail. The attendance success response is produced before the email branch,
+and both email nodes are configured to continue on regular errors.
+
+Configure a Microsoft Outlook OAuth2 credential on `Send Outlook Confirmation`
+before activating the workflow. The exported workflow contains a placeholder
+credential ID for that node.
 
 ## 10. Stop Session
 

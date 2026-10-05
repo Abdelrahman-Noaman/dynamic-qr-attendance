@@ -375,6 +375,7 @@
     },
     {
       "parameters": {
+        "operation": "read",
         "documentId": {
           "__rl": true,
           "value": "1W4Q8HrjGveP1jrjUzwho9aO7nRPPPDwwhfW7C1fdbD0",
@@ -631,6 +632,66 @@
         }
       },
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a7a0fcd0-5e1d-4c52-a8ef-5dbe6a63590e",
+              "leftValue": "={{ /@(outlook|hotmail|live|msn)\\.(com|net)|@must\\.edu\\.eg$/i.test($('Validate Submission').first().json.email) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c0c7678d-6f7e-45f8-8f89-32d7cfad740c",
+      "name": "Use Outlook Email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2352,
+        1104
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "subject": "=Attendance Confirmed — {{ $('Validate Submission').first().json.lecture }}",
+        "bodyContent": "=<p>Your attendance for <strong>{{ $('Validate Submission').first().json.lecture }}</strong> has been successfully recorded.</p><p>Status: Present</p><p>Recorded at: {{ $now.toFormat('yyyy-MM-dd HH:mm') }}</p>",
+        "toRecipients": "={{ $('Validate Submission').first().json.email }}",
+        "bodyContentType": "html",
+        "options": {}
+      },
+      "id": "0d485c4a-22af-43a3-8391-6f5a6b8aa22b",
+      "name": "Send Outlook Confirmation",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        2864,
+        1008
+      ],
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "REPLACE_WITH_OUTLOOK_CREDENTIAL_ID",
+          "name": "Microsoft Outlook account"
+        }
+      },
+      "onError": "continueRegularOutput"
     }
   ],
   "pinData": {},
@@ -856,6 +917,24 @@
     },
     "Respond Success": {
       "main": [
+        [
+          {
+            "node": "Use Outlook Email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Outlook Email?": {
+      "main": [
+        [
+          {
+            "node": "Send Outlook Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Send Confirmation Email",
