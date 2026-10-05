@@ -348,10 +348,15 @@ async function submitForm(e) {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ ticket, name, studentId, email, deviceId }),
     });
-    const data = await res.json();
+    let data;
+    try {
+      data = await res.json();
+    } catch (error) {
+      throw new Error(`Server returned HTTP ${res.status} without a JSON response`);
+    }
 
     if (!data.ok) {
-      errEl.textContent = friendlyError(data.reason);
+      errEl.textContent = friendlyError(data.reason || `SERVER_ERROR_${res.status}`);
       errEl.style.display = "block";
       btn.disabled = false;
       btn.textContent = "Submit Attendance";
