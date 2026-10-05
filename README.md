@@ -257,10 +257,12 @@ The final submission is validated again before attendance is recorded. The syste
 Before inserting a record, the workflow checks the combination of:
 
 ```text
-(Session ID + Student ID)
+(Session ID + Student ID) OR (Session ID + Device ID)
 ```
 
-This prevents the same student from registering multiple times during the same attendance session.
+This prevents the same student or browser from registering multiple times
+during the same attendance session. The device ID is stored in browser storage,
+so it is an additional control rather than a guaranteed hardware identifier.
 
 #### 6. Session Stop
 
@@ -330,7 +332,7 @@ Once the submission passes validation, n8n records the attendance in Google Shee
 Example row format:
 
 ```text
-Session ID | Student ID | Student Name | Email | Attendance Time | Token | Status
+Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status
 ```
 
 ### 📧 Confirmation Email
@@ -544,7 +546,7 @@ professor-dashboard.html?key=YOUR_PROF_KEY
 Create a spreadsheet containing an `Attendance` sheet with the following headers:
 
 ```text
-Session ID | Student ID | Student Name | Email | Attendance Time | Token | Status
+Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status
 ```
 
 If student IDs can contain leading zeros, format the **Student ID** column as **Plain text**.

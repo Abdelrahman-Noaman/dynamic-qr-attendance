@@ -26,15 +26,28 @@ For a valid scan, n8n builds a payload containing session ID, token, and an expi
 
 `POST /dqr-submit` parses the ticket and form fields, recomputes the HMAC signature, checks ticket expiry, confirms that the same session is still active, checks that name and student ID are present, and applies a basic email format check.
 
+The workflow also requires a browser-generated device ID. The student page creates
+the ID once in `localStorage` and sends it with the submission. The `Attendance`
+sheet must contain a `Device ID` column. Duplicate checking reads all rows for the
+session and rejects either a repeated student ID or a repeated device ID.
+
+The device ID is a persistent browser identifier, not a guaranteed hardware
+fingerprint. Clearing browser storage, using private browsing, or changing
+browsers can create a new ID, so it should be treated as an additional control
+rather than a replacement for student identity verification.
+
 The workflow does not currently enforce a specific university email domain.
 
 ## 7. Check Duplicate
 
-Google Sheets is queried for the submitted session ID and student ID. If a matching row exists, the workflow returns `DUPLICATE` and does not append another row.
+Google Sheets is queried for the submitted session ID. If a matching row has
+either the submitted student ID or device ID, the workflow returns `DUPLICATE`
+and does not append another row.
 
 ## 8. Record Attendance
 
-A new row is appended to the `Attendance` sheet with session ID, student ID, student name, email, timestamp, token, and `Present` status.
+A new row is appended to the `Attendance` sheet with session ID, student ID,
+device ID, student name, email, timestamp, token, and `Present` status.
 
 ## 9. Send Confirmation
 

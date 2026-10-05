@@ -1,0 +1,364 @@
+G R A D U AT I O N P R O J E C T
+
+Legacy CCTV Edge-AI Gateway
+Turning old analog security cameras into a modern, local, AI-powered monitoring system
+
+→
+4 Analog CCTV
+Cameras
+
+→
+Custom PCB
+(Video Decoder)
+
+→
+Raspberry Pi 5
+
+Edge AI
+Accelerator
+
+The Problem
+Millions of analog CCTV cameras are still in service, but none of them can run modern AI
+
+What already exists
+
+What's actually needed
+
+●
+
+Old coax/BNC cameras (CVBS / AHD / TVI / CVI) installed
+in homes, shops, and factories
+
+●
+
+Analog signal must be digitized and translated before
+any computer can read it
+
+●
+
+Fully analog signal.
+
+●
+
+●
+
+Usually watched passively, or recorded with no
+intelligence at all
+
+A Raspberry Pi has no analog video input at all, a direct
+connection is impossible
+
+●
+
+Replacing them with IP/AI cameras means re-wiring an
+entire building
+
+Person/face detection, tracking, recognition, and realtime alerts. Running locally, not in the cloud
+
+●
+
+A solution that upgrades existing cameras, instead of
+replacing them
+
+●
+
+02
+
+Our Solution
+A custom gateway board bridges legacy cameras to a Raspberry Pi running edge AI
+
+4× Analog
+Cameras
+
+CVBS / AHD / TVI / CVI
+over coax (BNC)
+
+→
+
+Custom PCB
+
+Protection + decoder
+analog → digital
+
+→
+
+Raspberry Pi
+
+Capture, orchestration,
+application logic
+
+→
+
+AI Accelerator
+
+Detection, tracking,
+recognition
+
+→
+
+Smart Alerts
+
+Zone intrusion,
+loitering, anomalies
+
+03
+
+Why This Isn't “Just Plug In a Camera”
+“Digital video” does not mean “ready for the Raspberry Pi” — a real translation step is required
+
+Analog Signal
+Same family as
+old TV broadcast
+
+→
+
+ADC + Decode
+Must happen on
+our custom PCB
+
+→
+
+Bridge / Bus
+
+→
+
+CSI-2, PCIe or USB —
+the hard engineering part
+
+Raspberry Pi 5
+Has no analog
+video input at all
+
+The custom PCB's entire reason for existing: it is the translator between an analog camera and a digital computer.
+
+04
+
+PHASE 1 — NOW
+
+Our First Prototype
+A single-channel, plug-and-play BNC-to-USB capture card — no custom hardware yet
+
+How it works
+1 analog camera
+
+USB 3.0 capture dongle (UVC)
+
+Why start here
+●
+
+Zero soldering, zero chip sourcing — works the same day it arrives
+
+●
+
+Appears to Linux as a standard webcam (UVC) — no custom driver
+needed
+
+●
+
+Lets us build and test the entire AI pipeline immediately
+
+●
+
+Our custom PCB will later replace only this one box — the AI code
+underneath does not change
+
+Raspberry Pi — /dev/video0
+
+OpenCV + YOLO pipeline
+
+05
+
+The AI Pipeline
+What happens to every video frame, from capture to alert
+
+›
+Capture
+
+›
+Person
+Detection
+
+›
+Tracking
+
+›
+Face
+Detection
+
+›
+Face
+Recognition
+
+Anomaly &
+Alert Logic
+
+Engineering reality: running the full pipeline on all 4 streams at full camera frame rate is not realistic on this hardware. Detection runs every few
+frames, with lightweight tracking filling the gaps — a standard, accepted technique for real-time edge AI.
+
+06
+
+Beyond Detection: Our AI Roadmap
+Features that move us from “a camera that detects people” to “a system that understands a site”
+
+Self-Learning Baseline
+
+Adaptive Processing
+
+Smart Bandwidth
+
+Privacy-First AI
+
+Learns normal activity per-site instead
+of relying only on fixed rules
+
+Scales AI load up/down with activity
+— saving power & GPU headroom
+
+Sends lightweight events by default;
+full video only when something
+matters
+
+Local processing with face-blurring
+before storage or transmission
+
+Natural-Language Search
+
+AI Model Plugins
+
+Camera Health Check
+
+Smart Confidence Alerts
+
+“Show me cars that entered after 8
+PM” — query video like a database
+
+Add new detection models per site
+without redesigning the whole system
+
+Flags poor lighting, blur, or low FPS
+before it silently breaks the AI
+
+Combines confidence + location +
+dwell time to cut down false alarms
+
+07
+
+Where We Fit In the Market
+Edge-AI video platforms already exist — our angle is retrofitting the legacy cameras already installed
+
+Existing Edge-AI Platforms
+Companies such as Spot AI and similar platforms already deliver
+edge-AI video analytics with features like anomaly detection,
+natural-language search, and smart alerting.
+They are generally built around modern IP cameras — not
+legacy analog/coax infrastructure.
+
+Our Differentiation
+●
+
+Designed specifically for the millions of analog CCTV cameras
+already installed
+
+●
+
+No rip-and-replace — a gateway board upgrades existing wiring,
+not the cameras
+
+●
+
+Fully local/edge processing — no dependency on cloud services
+
+●
+
+Same advanced-AI roadmap (self-learning, NL search, smart
+alerts) applied to legacy hardware
+
+08
+
+PHASE 2 — NEXT
+
+Our Custom 4-Channel PCB
+Built around the Renesas ISL79987 — a 4-channel analog decoder with native MIPI CSI-2 output
+
+›
+4× BNC
+Cameras
+
+›
+ESD /
+Protection
+
+›
+ISL79987
+4-ch Decoder
+
+›
+Pi 5
+CSI-2 Port
+
+AI
+Accelerator
+
+Why ISL79987
+●
+
+One chip handles all 4 cameras — simpler PCB, lower cost, lower power than 4 separate chips
+
+●
+
+Outputs MIPI CSI-2 directly — plugs into the Pi 5's native camera port
+
+●
+
+Raspberry Pi 5's camera hardware has 4 built-in DMA channels — confirmed able to receive 4 separate streams
+
+09
+
+Development Roadmap
+A staged plan — prove each piece before combining them
+
+1
+
+2
+
+3
+
+4
+
+5
+
+One camera
+working
+
+AI pipeline on
+the prototype
+
+4-channel
+custom PCB
+
+AI accelerator
+integration
+
+Full system
+testing
+
+11
+
+Conclusion
+We're validating a real, working AI pipeline today on a simple plug-and-play prototype,
+while engineering a custom 4-channel PCB to turn this into a true, low-cost retrofit
+for the analog CCTV cameras already installed everywhere.
+
+4
+
+1
+
+8+
+
+Camera Channels
+
+Custom PCB
+
+AI Features Planned
+
+

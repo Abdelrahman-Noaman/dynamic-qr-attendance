@@ -283,7 +283,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const b = $input.first().json.body || {};\nconst [sessionId, token, exp, sig] = String(b.ticket || '').split('.');\nreturn [{ json: {\n  sessionId, token, exp: Number(exp), sig,\n  payload: `${sessionId}.${token}.${exp}`,\n  name: String(b.name || '').trim(),\n  studentId: String(b.studentId || '').trim(),\n  email: String(b.email || '').trim().toLowerCase()\n} }];"
+        "jsCode": "const b = $input.first().json.body || {};\nconst [sessionId, token, exp, sig] = String(b.ticket || '').split('.');\nreturn [{ json: {\n  sessionId, token, exp: Number(exp), sig,\n  payload: `${sessionId}.${token}.${exp}`,\n  name: String(b.name || '').trim(),\n  studentId: String(b.studentId || '').trim(),\n  email: String(b.email || '').trim().toLowerCase(),\n  deviceId: String(b.deviceId || '').trim()\n} }];"
       },
       "id": "042ca026-fbd3-4094-b02f-eed266f0f1d7",
       "name": "Parse Submission",
@@ -313,7 +313,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const j = $input.first().json;\nconst s = $getWorkflowStaticData('global').session;\nlet reason = '';\nif (j.sig !== j.expectedSig) reason = 'BAD_TICKET';\nelse if (Date.now() > j.exp) reason = 'TICKET_EXPIRED';\nelse if (!s || !s.active || s.sessionId !== j.sessionId) reason = 'SESSION_CLOSED';\nelse if (!j.name || !j.studentId) reason = 'MISSING_FIELDS';\nelse if (!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(j.email)) reason = 'BAD_EMAIL';\n// optional: else if (!j.email.endsWith('@your-university.edu')) reason = 'BAD_EMAIL';\nreturn [{ json: { ...j, valid: reason === '', reason, lecture: s ? s.lecture : '' } }];"
+        "jsCode": "const j = $input.first().json;\nconst s = $getWorkflowStaticData('global').session;\nlet reason = '';\nif (j.sig !== j.expectedSig) reason = 'BAD_TICKET';\nelse if (Date.now() > j.exp) reason = 'TICKET_EXPIRED';\nelse if (!s || !s.active || s.sessionId !== j.sessionId) reason = 'SESSION_CLOSED';\nelse if (!j.name || !j.studentId || !j.email) reason = 'MISSING_FIELDS';\nelse if (!j.deviceId) reason = 'DEVICE_ID_REQUIRED';\nelse if (!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(j.email)) reason = 'BAD_EMAIL';\n// optional: else if (!j.email.endsWith('@your-university.edu')) reason = 'BAD_EMAIL';\nreturn [{ json: { ...j, valid: reason === '', reason, lecture: s ? s.lecture : '' } }];"
       },
       "id": "d59cc6c1-727f-4869-aec9-555312d86d15",
       "name": "Validate Submission",
@@ -390,10 +390,6 @@
             {
               "lookupColumn": "Session ID",
               "lookupValue": "={{ $('Validate Submission').first().json.sessionId }}"
-            },
-            {
-              "lookupColumn": "Student ID",
-              "lookupValue": "={{ $('Validate Submission').first().json.studentId }}"
             }
           ]
         },
@@ -408,7 +404,7 @@
         1072
       ],
       "retryOnFail": true,
-      "alwaysOutputData": true,
+      "alwaysOutputData": true
     },
     {
       "parameters": {
@@ -423,15 +419,25 @@
             {
               "id": "c1562c3b-ae2e-434a-b6d8-db1b8062acf3",
               "leftValue": "={{ $json['Student ID'] || '' }}",
-              "rightValue": "",
+              "rightValue": "={{ $('Validate Submission').first().json.studentId }}",
               "operator": {
                 "type": "string",
-                "operation": "notEmpty",
+                "operation": "equals",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "4f89f78c-7c13-4ec4-a23e-00d5aef0c3d7",
+              "leftValue": "={{ $json['Device ID'] || '' }}",
+              "rightValue": "={{ $('Validate Submission').first().json.deviceId }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
                 "singleValue": true
               }
             }
           ],
-          "combinator": "and"
+          "combinator": "or"
         },
         "options": {}
       },
@@ -477,6 +483,7 @@
           "value": {
             "Session ID": "={{ $('Validate Submission').first().json.sessionId }}",
             "Student ID": "={{ $('Validate Submission').first().json.studentId }}",
+            "Device ID": "={{ $('Validate Submission').first().json.deviceId }}",
             "Student Name": "={{ $('Validate Submission').first().json.name }}",
             "Email": "={{ $('Validate Submission').first().json.email }}",
             "Attendance Time": "={{ $now.toFormat('yyyy-MM-dd HH:mm:ss') }}",
@@ -497,6 +504,15 @@
             {
               "id": "Student ID",
               "displayName": "Student ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Device ID",
+              "displayName": "Device ID",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -560,7 +576,7 @@
         2384,
         1168
       ],
-      "retryOnFail": true,
+      "retryOnFail": true
     },
     {
       "parameters": {

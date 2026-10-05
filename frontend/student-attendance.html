@@ -225,6 +225,27 @@ const N8N = "https://tapiya2093.app.n8n.cloud/webhook";   // your n8n webhook ba
 
 let ticket = null;
 
+// A browser-generated ID persists across attendance sessions on this device.
+// It is not a hardware identifier and can be reset by clearing browser storage.
+function getDeviceId() {
+  const storageKey = "dqr_device_id";
+  let deviceId = "";
+  try {
+    deviceId = localStorage.getItem(storageKey) || "";
+    if (!deviceId) {
+      deviceId = typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : Array.from(crypto.getRandomValues(new Uint8Array(16)))
+            .map(value => value.toString(16).padStart(2, "0"))
+            .join("");
+      localStorage.setItem(storageKey, deviceId);
+    }
+  } catch (error) {
+    console.error("Unable to create a persistent device ID:", error);
+  }
+  return deviceId;
+}
+
 // ---- Reason code → friendly message ----
 const MESSAGES = {
   TOKEN_EXPIRED:  "This QR has expired. Please scan the one currently on the screen.",
@@ -236,6 +257,7 @@ const MESSAGES = {
   DUPLICATE:      "You've already recorded your attendance for this session!",
   BAD_EMAIL:      "Please use a valid university email address.",
   MISSING_FIELDS: "Please fill in all fields.",
+  DEVICE_ID_REQUIRED: "This browser could not create a device ID. Please enable site storage and try again.",
 };
 
 function friendlyError(reason) {
@@ -302,9 +324,18 @@ async function submitForm(e) {
   const name      = document.getElementById("name").value.trim();
   const studentId = document.getElementById("studentId").value.trim();
   const email     = document.getElementById("email").value.trim();
+  const deviceId  = getDeviceId();
 
   if (!name || !studentId || !email) {
     errEl.textContent = friendlyError("MISSING_FIELDS");
+    errEl.style.display = "block";
+    btn.disabled = false;
+    btn.textContent = "Submit Attendance";
+    return false;
+  }
+
+  if (!deviceId) {
+    errEl.textContent = friendlyError("DEVICE_ID_REQUIRED");
     errEl.style.display = "block";
     btn.disabled = false;
     btn.textContent = "Submit Attendance";
@@ -315,7 +346,7 @@ async function submitForm(e) {
     const res = await fetch(`${N8N}/dqr-submit`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ ticket, name, studentId, email }),
+      body: new URLSearchParams({ ticket, name, studentId, email, deviceId }),
     });
     const data = await res.json();
 

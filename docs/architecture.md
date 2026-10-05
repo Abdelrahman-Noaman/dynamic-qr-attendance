@@ -42,7 +42,9 @@ The workflow uses n8n workflow static data for the currently active session. Thi
 
 ### Google Sheets
 
-The `Attendance` sheet is used both to look up an existing `(Session ID, Student ID)` pair and to append new attendance rows.
+The `Attendance` sheet is used both to look up existing attendance for a
+session and to append new attendance rows. A submission is rejected when either
+the `(Session ID, Student ID)` or `(Session ID, Device ID)` pair already exists.
 
 ### Gmail
 
@@ -50,6 +52,6 @@ After the success response is prepared, the Gmail node sends a confirmation emai
 
 ## Trust Boundaries
 
-The browser is untrusted. It can submit arbitrary form values and tickets, so the n8n workflow verifies the professor key, QR session/token, HMAC ticket signature, ticket expiry, session status, required fields, email shape, and duplicate status before writing to Sheets.
+The browser is untrusted. It can submit arbitrary form values and tickets, so the n8n workflow verifies the professor key, QR session/token, HMAC ticket signature, ticket expiry, session status, required fields, email shape, device ID, and duplicate status before writing to Sheets. The device ID is a persistent browser-storage identifier, not a tamper-proof hardware fingerprint.
 
 The professor key and HMAC secret are placeholders in the public export. Configure private values in the n8n workflow before activation.
