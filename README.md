@@ -30,6 +30,7 @@
 - [How It Works](#-how-it-works)
 - [System Demo](#-system-demo)
 - [n8n Workflow](#️-n8n-workflow)
+- [Location Verification](#-location-verification)
 - [Architecture](#️-architecture)
 - [Tech Stack](#️-tech-stack)
 - [Repository Structure](#-repository-structure)
@@ -252,7 +253,35 @@ The final submission is validated again before attendance is recorded. The syste
 - Basic email format
 - Duplicate attendance
 
-#### 5. Duplicate Prevention
+#### 5. Location Verification
+
+Before starting a session, the instructor shares one browser geolocation
+reading. The active session stores the reference coordinates, reported
+accuracy, and capture time in n8n state. After QR validation, the student is
+asked for one fresh reading. The workflow validates both readings, calculates
+the Haversine distance on the backend, and applies:
+
+```text
+ATTENDANCE_RADIUS_METERS = 100
+MAX_GPS_ACCURACY_METERS = 50
+MAX_LOCATION_AGE_SECONDS = 30
+LOCATION_DECISION_POLICY = REVIEW
+LOCATION_QUALITY_POLICY = REVIEW
+```
+
+Only fresh, accurate readings within the radius are `VERIFIED`. Under the
+default `REVIEW` policy, outside-radius attempts are recorded as `Needs
+Review`; low-accuracy readings follow the instructor quality policy, while
+stale, invalid, or unavailable readings are rejected. The browser never
+decides the final outcome.
+
+The instructor quality policy is configured in the n8n `Create Session` Code
+node, not trusted from the browser, and is separate from the attendance radius:
+`REVIEW` allows a poor-quality instructor reading to start a session as
+`NEEDS_REVIEW`, but no submission from that session can be location-verified.
+`REJECT` prevents session start until the reading meets the quality target.
+
+#### 6. Duplicate Prevention
 
 Before inserting a record, the workflow checks the combination of:
 
@@ -264,7 +293,7 @@ This prevents the same student or browser from registering multiple times
 during the same attendance session. The device ID is stored in browser storage,
 so it is an additional control rather than a guaranteed hardware identifier.
 
-#### 6. Session Stop
+#### 7. Session Stop
 
 When the professor stops the session:
 
@@ -332,8 +361,21 @@ Once the submission passes validation, n8n records the attendance in Google Shee
 Example row format:
 
 ```text
-Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status
+Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status | Instructor Latitude | Instructor Longitude | Student Latitude | Student Longitude | Distance (m) | Instructor GPS Accuracy (m) | Student GPS Accuracy (m) | Location Status | Location Timestamp | Review Status
 ```
+
+### 📍 Location Verification
+
+The professor dashboard provides a **Share my location** control, accuracy,
+the configured radius, and live verified/outside-radius/review counts. The
+student page requests location only after the QR passes `/dqr-check` and
+provides a retry path when permission or services fail. Geolocation requires
+HTTPS (except localhost) and explicit browser/device permission.
+
+The workflow uses the Haversine great-circle calculation and records only the
+coordinates and accuracy needed for attendance auditing. Browser GPS is an
+estimate, may be inaccurate indoors, and can be spoofed; it is not
+cryptographic proof of physical presence.
 
 ### 📧 Confirmation Email
 
@@ -546,10 +588,13 @@ professor-dashboard.html?key=YOUR_PROF_KEY
 Create a spreadsheet containing an `Attendance` sheet with the following headers:
 
 ```text
-Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status
+Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status | Instructor Latitude | Instructor Longitude | Student Latitude | Student Longitude | Distance (m) | Instructor GPS Accuracy (m) | Student GPS Accuracy (m) | Location Status | Location Timestamp | Review Status
 ```
 
 If student IDs can contain leading zeros, format the **Student ID** column as **Plain text**.
+Append the ten location headers after the original `Status` column. Do not
+rename the original columns. Refresh the Google Sheets node schema after
+changing the headers.
 
 ### 5. Activate and Test
 
@@ -591,6 +636,14 @@ The system should be tested against both successful and invalid flows.
 | Session stopped | ❌ New submissions rejected |
 | Valid submission | ✅ Recorded in Google Sheets |
 | Valid submission | 📧 Confirmation email sent |
+| Instructor location missing or denied | ❌ Session start rejected |
+| Student within 100 m with accuracy ≤ 50 m | ✅ `VERIFIED` |
+| Student outside radius | ⚠️ `Needs Review`, no verification email |
+| Accuracy above 50 m | ❌ `LOW_ACCURACY` |
+| Reading older than 30 seconds | ❌ `STALE_LOCATION` |
+| Invalid coordinates | ❌ `INVALID_LOCATION` |
+| Student location denied or unavailable | ❌ `LOCATION_UNAVAILABLE` |
+| Duplicate concurrent submission | ❌ Duplicate protection applies |
 
 ---
 
@@ -609,6 +662,11 @@ The current prototype also has several intentional limitations:
 - No dedicated production secrets manager
 - n8n workflow static data for session state
 - No strong physical-presence verification
+- Browser geolocation can be spoofed and does not prove presence
+- The default `REVIEW` policy records outside-radius attempts but does not yet
+  provide a secure instructor approval endpoint
+- n8n workflow static data is not transaction-safe under multi-instance
+  concurrency; use a database-backed session and uniqueness constraint at scale
 
 These limitations are documented because the project is intended as a **practical prototype**, not a production attendance platform.
 

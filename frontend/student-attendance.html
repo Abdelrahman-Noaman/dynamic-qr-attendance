@@ -158,6 +158,16 @@
     padding: 2rem;
   }
 
+  .location-note {
+    margin-top: 1rem;
+    padding: 0.85rem 1rem;
+    border-radius: 10px;
+    background: rgba(9,132,227,0.1);
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.45;
+  }
+
   .spinner {
     display: inline-block;
     width: 28px;
@@ -205,6 +215,10 @@
       <button type="submit" class="submit" id="btnSubmit">Submit Attendance</button>
     </form>
 
+    <div class="location-note" id="locationNote">
+      Your one-time location is requested only when you submit. It is used to verify this attendance session;
+      GPS accuracy is an estimate and may be reduced indoors.
+    </div>
     <div class="msg msg-error" id="formError" style="display:none;"></div>
   </div>
 
@@ -258,6 +272,14 @@ const MESSAGES = {
   BAD_EMAIL:      "Please use a valid university email address.",
   MISSING_FIELDS: "Please fill in all fields.",
   DEVICE_ID_REQUIRED: "This browser could not create a device ID. Please enable site storage and try again.",
+  LOCATION_PERMISSION_DENIED: "Location permission was denied. Allow location access and retry.",
+  LOCATION_UNAVAILABLE: "Your location could not be retrieved. Check location services and retry.",
+  LOCATION_TIMEOUT: "Location request timed out. Please retry.",
+  INVALID_LOCATION: "The browser returned invalid location data. Please retry.",
+  LOW_ACCURACY: "Your location is too inaccurate. Move outdoors or closer to the venue and retry.",
+  STALE_LOCATION: "Your location reading is too old. Please retry.",
+  OUTSIDE_RADIUS: "Your location is outside the attendance area. This attempt was not verified.",
+  NEEDS_REVIEW: "Your attendance was recorded for instructor review; it is not verified yet.",
 };
 
 function friendlyError(reason) {
@@ -342,11 +364,32 @@ async function submitForm(e) {
     return false;
   }
 
+  let location;
+  try {
+    location = await getCurrentLocation();
+  } catch (error) {
+    errEl.textContent = friendlyError(error.message);
+    errEl.style.display = "block";
+    btn.disabled = false;
+    btn.textContent = "Submit Attendance";
+    return false;
+  }
+
   try {
     const res = await fetch(`${N8N}/dqr-submit`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ ticket, name, studentId, email, deviceId }),
+      body: new URLSearchParams({
+        ticket,
+        name,
+        studentId,
+        email,
+        deviceId,
+        studentLatitude: String(location.latitude),
+        studentLongitude: String(location.longitude),
+        studentAccuracy: String(location.accuracy),
+        studentLocationTimestamp: String(location.timestamp),
+      }),
     });
     let data;
     try {
@@ -368,6 +411,11 @@ async function submitForm(e) {
       return false;
     }
 
+    if (data.locationStatus === "NEEDS_REVIEW") {
+      document.querySelector("#viewSuccess h1").textContent = "Attendance Needs Review";
+      document.querySelector("#viewSuccess p").innerHTML =
+        "Your attempt was recorded for instructor review.<br>It is not location-verified yet.";
+    }
     showView("viewSuccess");
 
   } catch (e) {
@@ -378,6 +426,46 @@ async function submitForm(e) {
   }
 
   return false;
+}
+
+function getCurrentLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("LOCATION_UNAVAILABLE"));
+      return;
+    }
+    document.getElementById("locationNote").textContent = "Requesting your location…";
+    navigator.geolocation.getCurrentPosition(
+      ({ coords, timestamp }) => {
+        const values = [coords.latitude, coords.longitude, coords.accuracy];
+        if (
+          values.some(value => !Number.isFinite(value)) ||
+          coords.latitude < -90 ||
+          coords.latitude > 90 ||
+          coords.longitude < -180 ||
+          coords.longitude > 180 ||
+          coords.accuracy <= 0
+        ) {
+          reject(new Error("INVALID_LOCATION"));
+          return;
+        }
+        resolve({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy: coords.accuracy,
+          timestamp: timestamp || Date.now(),
+        });
+      },
+      error => reject(new Error(
+        error.code === error.PERMISSION_DENIED
+          ? "LOCATION_PERMISSION_DENIED"
+          : error.code === error.TIMEOUT
+            ? "LOCATION_TIMEOUT"
+            : "LOCATION_UNAVAILABLE"
+      )),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+    );
+  });
 }
 </script>
 </body>

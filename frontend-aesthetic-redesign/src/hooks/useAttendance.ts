@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { N8N, STUDENT_URL } from "../config";
 
+export const MAX_GPS_ACCURACY_METERS = 50;
+export let LOCATION_QUALITY_POLICY: "REVIEW" | "REJECT" = "REVIEW";
+export type LocationQualityStatus = "VERIFIED" | "NEEDS_REVIEW" | "REJECTED";
+
 export type Tone = "idle" | "running" | "stopped" | "error";
 
 export interface Status {
@@ -16,6 +20,11 @@ export interface QrPayload {
   lecture: string;
   durationMs: number;
   seq: number;
+  locationStats: {
+    verified: number;
+    outsideRadius: number;
+    needsReview: number;
+  };
 }
 
 interface ApiResponse {
@@ -26,6 +35,9 @@ interface ApiResponse {
   sessionId?: string;
   token?: string;
   expiresInMs?: number;
+  attendanceRadiusMeters?: number;
+  locationStats?: QrPayload["locationStats"];
+  locationQualityStatus?: LocationQualityStatus;
 }
 
 class ApiRequestError extends Error {
@@ -87,6 +99,22 @@ export function useAttendance(key: string | null) {
   const [running, setRunningState] = useState(false);
   const [qr, setQr] = useState<QrPayload | null>(null);
   const [tokensServed, setTokensServed] = useState(0);
+  const [instructorLocation, setInstructorLocation] = useState<{
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+    timestamp: number;
+  } | null>(null);
+  const [locationStatus, setLocationStatus] = useState("Location is required before starting.");
+  const [locationQualityStatus, setLocationQualityStatus] =
+    useState<LocationQualityStatus>("REJECTED");
+  const [locationBusy, setLocationBusy] = useState(false);
+  const [locationStats, setLocationStats] = useState<QrPayload["locationStats"]>({
+    verified: 0,
+    outsideRadius: 0,
+    needsReview: 0,
+  });
+  const [attendanceRadiusMeters, setAttendanceRadiusMeters] = useState(100);
 
   const runningRef = useRef(false);
   const stoppingRef = useRef(false);
@@ -129,8 +157,9 @@ export function useAttendance(key: string | null) {
       lecture: data.lecture || "Lecture",
       durationMs: data.expiresInMs || 10000,
       seq: seqRef.current,
+      locationStats: data.locationStats || locationStats,
     });
-  }, []);
+  }, [locationStats]);
 
   // Active session → show QR, lock controls, and schedule the next token fetch
   const applyActive = useCallback(
@@ -141,6 +170,11 @@ export function useAttendance(key: string | null) {
       setStopDisabled(false);
       setLectureDisabled(true);
       setLecture(data.lecture || "Lecture");
+      setLocationStats(data.locationStats || locationStats);
+      setAttendanceRadiusMeters(data.attendanceRadiusMeters || 100);
+      if (data.locationQualityStatus) {
+        setLocationQualityStatus(data.locationQualityStatus);
+      }
 
       showQR(data);
       setStatus(`Running — ${data.lecture || "Lecture"}`, "running");
@@ -150,7 +184,7 @@ export function useAttendance(key: string | null) {
       clearTimeout(refreshTimer.current);
       refreshTimer.current = window.setTimeout(() => fetchQRRef.current(), delay);
     },
-    [setRunning, setStatus, showQR]
+    [locationStats, setRunning, setStatus, showQR]
   );
 
   // ---- Fetch QR / token ----
@@ -164,10 +198,11 @@ export function useAttendance(key: string | null) {
       if (epoch !== epochRef.current || stoppingRef.current) return;
 
       if (!data.ok) {
-        setStatus(
-          data.error === "unauthorized" ? "Wrong key" : data.error || "Unknown error",
-          "error"
-        );
+        const detail =
+          data.error === "unauthorized"
+            ? "Wrong key"
+            : data.error || "Unknown server error";
+        setStatus(`QR refresh failed: ${detail}`, "error");
         return;
       }
 
@@ -229,8 +264,95 @@ export function useAttendance(key: string | null) {
   }, [key]);
 
   // ---- Start ----
+  const shareLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setInstructorLocation(null);
+      setLocationQualityStatus("REJECTED");
+      setLocationStatus("Location services are unavailable in this browser.");
+      return;
+    }
+    setLocationBusy(true);
+    setLocationStatus("Requesting your location…");
+    navigator.geolocation.getCurrentPosition(
+      ({ coords, timestamp }) => {
+        const values = [coords.latitude, coords.longitude, coords.accuracy];
+        if (
+          values.some((value) => !Number.isFinite(value)) ||
+          coords.latitude < -90 ||
+          coords.latitude > 90 ||
+          coords.longitude < -180 ||
+          coords.longitude > 180 ||
+          coords.accuracy <= 0
+        ) {
+          setInstructorLocation(null);
+          setLocationQualityStatus("REJECTED");
+          setLocationStatus("The browser returned invalid location data. Please retry.");
+          setLocationBusy(false);
+          return;
+        }
+        if (coords.accuracy > MAX_GPS_ACCURACY_METERS) {
+          setInstructorLocation({
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            accuracy: coords.accuracy,
+            timestamp: timestamp || Date.now(),
+          });
+          setLocationQualityStatus("NEEDS_REVIEW");
+          setLocationStatus(
+            `NEEDS_REVIEW · ±${Math.round(coords.accuracy)} m reported; above the ${MAX_GPS_ACCURACY_METERS} m quality target. You may start, but attendance cannot be verified from this reading.`
+          );
+          setLocationBusy(false);
+          return;
+        }
+        setInstructorLocation({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy: coords.accuracy,
+          timestamp: timestamp || Date.now(),
+        });
+        setLocationQualityStatus("VERIFIED");
+        setLocationStatus(
+          `Location ready · accuracy ±${Math.round(coords.accuracy)} m (quality limit ≤${MAX_GPS_ACCURACY_METERS} m)`
+        );
+        setLocationBusy(false);
+      },
+      (error) => {
+        setInstructorLocation(null);
+        setLocationQualityStatus("REJECTED");
+        const message =
+          error.code === error.PERMISSION_DENIED
+            ? "Location permission was denied. Allow it in the browser and retry."
+            : error.code === error.POSITION_UNAVAILABLE
+              ? "Location services are unavailable. Check device settings and retry."
+              : error.code === error.TIMEOUT
+                ? "Location request timed out. Please retry."
+                : "Unable to retrieve your location. Please retry.";
+        setLocationStatus(message);
+        setLocationBusy(false);
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+    );
+  }, []);
+
   const startSession = useCallback(async () => {
     if (!key) return;
+    if (!instructorLocation) {
+      setStatus(
+        "A valid location reading is required before starting.",
+        "error"
+      );
+      return;
+    }
+    if (
+      locationQualityStatus === "NEEDS_REVIEW" &&
+      LOCATION_QUALITY_POLICY === "REJECT"
+    ) {
+      setStatus(
+        `A location reading with accuracy ≤${MAX_GPS_ACCURACY_METERS} m is required before starting.`,
+        "error"
+      );
+      return;
+    }
     setStartDisabled(true);
     setStarting(true);
     setStatus("Starting…", "running");
@@ -239,20 +361,51 @@ export function useAttendance(key: string | null) {
       const data = await apiPost("dqr-start", {
         key,
         lecture: lecture.trim() || "Lecture",
+        instructorLatitude: String(instructorLocation.latitude),
+        instructorLongitude: String(instructorLocation.longitude),
+        instructorAccuracy: String(instructorLocation.accuracy),
+        instructorLocationTimestamp: String(instructorLocation.timestamp),
+        locationQualityPolicy: LOCATION_QUALITY_POLICY,
       });
 
       if (!data.ok) {
-        setStatus(data.error === "unauthorized" ? "Wrong key" : String(data.error), "error");
+        const reason = data.error || "UNKNOWN_START_ERROR";
+        if (
+          reason === "LOW_ACCURACY" ||
+          reason === "STALE_LOCATION" ||
+          reason === "INVALID_LOCATION" ||
+          reason === "LOCATION_UNAVAILABLE"
+        ) {
+          setInstructorLocation(null);
+          setLocationQualityStatus("REJECTED");
+          setLocationStatus(`REJECTED · Server refused the instructor location: ${reason}. Refresh and retry.`);
+        }
+        setStatus(
+          reason === "unauthorized"
+            ? "Session start rejected: wrong key"
+            : `Session start rejected: ${reason}`,
+          "error"
+        );
         setStartDisabled(false);
         setStarting(false);
         return;
       }
 
+      setLecture(data.lecture || lecture.trim() || "Lecture");
+      if (data.locationQualityStatus) {
+        setLocationQualityStatus(data.locationQualityStatus);
+      }
       setRunning(true);
       setStarting(false);
       setStopDisabled(false);
       setLectureDisabled(true);
-      fetchQR();
+      setStatus(
+        data.locationQualityStatus === "NEEDS_REVIEW"
+          ? "Session started with location review required"
+          : "Session started",
+        data.locationQualityStatus === "NEEDS_REVIEW" ? "stopped" : "running"
+      );
+      await fetchQR();
     } catch (error) {
       setStatus(
         error instanceof ApiRequestError
@@ -263,7 +416,15 @@ export function useAttendance(key: string | null) {
       setStartDisabled(false);
       setStarting(false);
     }
-  }, [key, lecture, fetchQR, setRunning, setStatus]);
+  }, [
+    key,
+    lecture,
+    instructorLocation,
+    locationQualityStatus,
+    fetchQR,
+    setRunning,
+    setStatus,
+  ]);
 
   // ---- Stop ----
   const stopSession = useCallback(async () => {
@@ -332,6 +493,13 @@ export function useAttendance(key: string | null) {
     running,
     qr,
     tokensServed,
+    instructorLocation,
+    locationStatus,
+    locationQualityStatus,
+    locationBusy,
+    shareLocation,
+    attendanceRadiusMeters,
+    locationStats,
     startSession,
     stopSession,
   };

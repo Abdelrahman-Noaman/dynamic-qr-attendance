@@ -8,14 +8,16 @@ Dynamic QR Attendance is a small browser-to-n8n workflow. The browser interfaces
 flowchart TD
     P[Professor dashboard] -->|POST dqr-start / dqr-stop| N[n8n webhooks]
     N --> S[Workflow static session state]
+    P -->|One-time browser location| N
     N -->|GET dqr-qr| Q[Current QR token]
     Q -->|Student scans| ST[Student attendance page]
     ST -->|GET dqr-check| V[Token validation]
     V --> T[Signed temporary ticket]
-    T -->|POST dqr-submit| SV[Submission validation]
-    SV --> D[Duplicate check]
-    D -->|New attendance| G[Google Sheets]
-    G --> M[Gmail confirmation]
+    T -->|POST dqr-submit + one-time location| SV[Submission validation]
+    SV --> L[Haversine and freshness checks]
+    L --> D[Duplicate check]
+    D -->|Verified or review attempt| G[Google Sheets]
+    G -->|Verified only| M[Gmail confirmation]
 ```
 
 ## Responsibilities
@@ -52,6 +54,10 @@ After the success response is prepared, the Gmail node sends a confirmation emai
 
 ## Trust Boundaries
 
-The browser is untrusted. It can submit arbitrary form values and tickets, so the n8n workflow verifies the professor key, QR session/token, HMAC ticket signature, ticket expiry, session status, required fields, email shape, device ID, and duplicate status before writing to Sheets. The device ID is a persistent browser-storage identifier, not a tamper-proof hardware fingerprint.
+The browser is untrusted. It can submit arbitrary form values and tickets, so the n8n workflow verifies the professor key, QR session/token, HMAC ticket signature, ticket expiry, session status, required fields, email shape, device ID, duplicate status, coordinate ranges, accuracy, freshness, and distance before writing to Sheets. The device ID is a persistent browser-storage identifier, not a tamper-proof hardware fingerprint. Location readings are quality signals rather than proof of physical presence and can be spoofed.
+
+Location is captured only during the start and attendance flows, not continuously.
+The default policy is `REVIEW`: outside-radius attempts are auditable but are
+not marked verified and do not receive a verified-attendance email.
 
 The professor key and HMAC secret are placeholders in the public export. Configure private values in the n8n workflow before activation.

@@ -6,6 +6,14 @@ This document describes the behavior present in the exported n8n workflow. It do
 
 `POST /dqr-start` checks the submitted professor key. For an authorized request, it creates a session ID, stores the lecture name, creates the first random token, and marks the session active in workflow static data.
 
+The request must also contain one instructor location reading. n8n validates
+the coordinate range, positive accuracy, and a capture time no older than 30
+seconds. The quality policy is configurable in the server-side `Create Session` Code
+node as `REVIEW` or `REJECT`; it is not trusted from the browser. With
+`REVIEW` (the default), an instructor reading above the 50 m quality target is
+stored as `NEEDS_REVIEW`; the session may start, but it cannot produce
+location-verified attendance. With `REJECT`, the session start fails.
+
 ## 2. Generate Token
 
 The start step generates a six-character token using an uppercase alphanumeric alphabet that excludes ambiguous characters.
@@ -38,6 +46,20 @@ rather than a replacement for student identity verification.
 
 The workflow does not currently enforce a specific university email domain.
 
+The student page requests one location reading only after `/dqr-check` succeeds.
+The workflow validates both coordinate pairs, positive accuracy at or below
+50 m, and a capture age at or below 30 seconds. It calculates the Haversine
+distance against the instructor's session reference. Outcomes are
+`VERIFIED`, `OUTSIDE_RADIUS`, `LOW_ACCURACY`, `STALE_LOCATION`,
+`INVALID_LOCATION`, and `LOCATION_UNAVAILABLE`. The default `REVIEW` policy
+stores outside-radius attempts as `Needs Review`; all other non-verified
+outcomes are rejected.
+
+`ATTENDANCE_RADIUS_METERS` (100 m) controls instructor/student distance.
+`MAX_GPS_ACCURACY_METERS` (50 m) controls uncertainty and is intentionally a
+separate setting. The server calculates the distance and never trusts a
+browser-provided status or distance.
+
 ## 7. Check Duplicate
 
 Google Sheets is queried for the submitted session ID. If a matching row has
@@ -46,12 +68,14 @@ and does not append another row.
 
 ## 8. Record Attendance
 
-A new row is appended to the `Attendance` sheet with session ID, student ID,
-device ID, student name, email, timestamp, token, and `Present` status.
+A new row is appended to the `Attendance` sheet with the original fields plus
+the instructor/student coordinates, distance, both accuracy values, location
+status, location timestamp, and review status. `Present` is retained only for
+verified rows; review attempts use `Needs Review`.
 
 ## 9. Send Confirmation
 
-After attendance is saved, the `Use Outlook Email?` node routes the confirmation
+After verified attendance is saved, the `Use Outlook Email?` node routes the confirmation
 by recipient domain. Addresses ending in `outlook.com`, `hotmail.com`, `live.com`, `msn.com`, or
 `must.edu.eg` use the Microsoft Outlook node; all other addresses use Gmail. The attendance success response is produced before the email branch,
 and both email nodes are configured to continue on regular errors.

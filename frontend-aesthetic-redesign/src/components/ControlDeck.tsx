@@ -16,6 +16,15 @@ interface Props {
   status: Status;
   onStart: () => void;
   onStop: () => void;
+  locationStatus: string;
+  locationBusy: boolean;
+  hasLocation: boolean;
+  attendanceRadiusMeters: number;
+  maxAccuracyMeters: number;
+  reportedAccuracyMeters: number | null;
+  locationQualityStatus: "VERIFIED" | "NEEDS_REVIEW" | "REJECTED";
+  locationQualityPolicy: "REVIEW" | "REJECT";
+  onShareLocation: () => void;
 }
 
 const TONE: Record<Tone, string> = {
@@ -90,6 +99,15 @@ export function ControlDeck({
   status,
   onStart,
   onStop,
+  locationStatus,
+  locationBusy,
+  hasLocation,
+  attendanceRadiusMeters,
+  maxAccuracyMeters,
+  reportedAccuracyMeters,
+  locationQualityStatus,
+  locationQualityPolicy,
+  onShareLocation,
 }: Props) {
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -137,6 +155,44 @@ export function ControlDeck({
       </div>
 
       <div className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-4">
+        <div className="w-full rounded-2xl border border-white/15 bg-white/[0.03] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-mono text-xs font-bold tracking-[0.2em] text-pink uppercase">
+                Instructor location
+              </p>
+              <p className="mt-2 text-sm text-cream/75" role="status">
+                {locationStatus}
+              </p>
+              <p className="mt-1 font-mono text-[11px] font-bold tracking-[0.16em] text-cream/55 uppercase">
+                Quality outcome: {locationQualityStatus.replace("_", " ")}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onShareLocation}
+              disabled={locationBusy || live}
+              className="rounded-full border border-lime/60 px-4 py-2 font-mono text-xs font-bold tracking-wide text-lime uppercase transition-colors hover:bg-lime hover:text-ink disabled:cursor-not-allowed disabled:border-white/20 disabled:text-cream/45"
+            >
+              {locationBusy ? "Locating…" : hasLocation ? "Refresh location" : "Share my location"}
+            </button>
+          </div>
+          <p className="mt-3 text-xs leading-relaxed text-cream/55">
+            Attendance uses a one-time browser reading. GPS accuracy is an estimate, especially indoors.
+            Reported accuracy:{" "}
+            {reportedAccuracyMeters === null
+              ? "not available"
+              : `±${Math.round(reportedAccuracyMeters)} m`}
+            . Readings above {maxAccuracyMeters} m are{" "}
+            {locationQualityPolicy === "REVIEW"
+              ? "kept as Needs Review and cannot verify attendance"
+              : "rejected"}.
+            Configured attendance radius: {attendanceRadiusMeters} m. Move
+            outdoors, enable device location services, and retry for a clearer
+            reading.
+          </p>
+        </div>
+
         {/* Start */}
         <MagneticButton
           type="submit"

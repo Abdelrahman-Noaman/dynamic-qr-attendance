@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "# 🔐 Dynamic QR Attendance System\n\nAutomated attendance system for Data Security lectures using short-lived QR tokens.\n\n### How it works\n\n* Professor starts an attendance session.\n* n8n generates a unique session and a QR token.\n* The QR token automatically rotates every **10 seconds**.\n* Students scan the current QR and submit their name, student ID, and email.\n* n8n validates the session and token before accepting the attendance.\n* A signed temporary ticket allows students enough time to complete the form without requiring the QR token to remain valid.\n* Duplicate attendance for the same student and session is rejected.\n* Valid attendance is recorded automatically in **Google Sheets**.\n* A professional **confirmation email** is sent to the student immediately after successful registration.\n* When the professor stops the session, all pending tickets become invalid and new submissions are rejected.\n\n### Main Components\n\n**n8n** → Automation & validation\n**Dynamic QR** → Short-lived access token\n**Google Sheets** → Attendance records\n**Gmail** → Attendance confirmation\n**HTML Pages** → Professor dashboard & student submission page\n\n### Security Concept\n\nThe QR code itself is not a permanent attendance link. Each QR contains a short-lived token that expires after 10 seconds, reducing the risk of students using an old QR code outside the classroom.\n\n> **Start → Generate → Rotate → Scan → Validate → Record → Confirm → Stop**\n",
+        "content": "# ðŸ” Dynamic QR Attendance System\n\nAutomated attendance system for Data Security lectures using short-lived QR tokens.\n\n### How it works\n\n* Professor starts an attendance session.\n* n8n generates a unique session and a QR token.\n* The QR token automatically rotates every **10 seconds**.\n* Students scan the current QR and submit their name, student ID, and email.\n* n8n validates the session and token before accepting the attendance.\n* A signed temporary ticket allows students enough time to complete the form without requiring the QR token to remain valid.\n* Duplicate attendance for the same student and session is rejected.\n* Valid attendance is recorded automatically in **Google Sheets**.\n* A professional **confirmation email** is sent to the student immediately after successful registration.\n* When the professor stops the session, all pending tickets become invalid and new submissions are rejected.\n\n### Main Components\n\n**n8n** â†’ Automation & validation\n**Dynamic QR** â†’ Short-lived access token\n**Google Sheets** â†’ Attendance records\n**Gmail** â†’ Attendance confirmation\n**HTML Pages** â†’ Professor dashboard & student submission page\n\n### Security Concept\n\nThe QR code itself is not a permanent attendance link. Each QR contains a short-lived token that expires after 10 seconds, reducing the risk of students using an old QR code outside the classroom.\n\n> **Start â†’ Generate â†’ Rotate â†’ Scan â†’ Validate â†’ Record â†’ Confirm â†’ Stop**\n",
         "height": 588,
         "width": 1036
       },
@@ -37,7 +37,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const KEY = 'MySecretyKey2005';\nconst b = $input.first().json.body || {};\nif (b.key !== KEY) return [{ json: { ok: false, error: 'unauthorized' } }];\n\nconst rand = (n) => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };\nconst wf = $getWorkflowStaticData('global');\nconst sessionId = 'S' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + rand(4);\nwf.session = {\n  active: true,\n  sessionId,\n  lecture: String(b.lecture || 'Lecture').trim(),\n  token: rand(6),\n  issuedAt: Date.now()\n};\nreturn [{ json: { ok: true, sessionId, lecture: wf.session.lecture } }];"
+        "jsCode": "const KEY = 'MySecretyKey2005';\nconst b = $input.first().json.body || {};\nconst ATTENDANCE_RADIUS_METERS = 100;\nconst MAX_GPS_ACCURACY_METERS = 50;\nconst MAX_LOCATION_AGE_SECONDS = 30;\nconst LOCATION_QUALITY_POLICY = 'REVIEW';\nconst POLICY = LOCATION_QUALITY_POLICY;\nif (b.key !== KEY) return [{ json: { ok: false, error: 'unauthorized' } }];\n\nconst raw = [b.instructorLatitude, b.instructorLongitude, b.instructorAccuracy, b.instructorLocationTimestamp];\nconst missing = raw.some(value => value === undefined || value === null || String(value).trim() === '');\nconst number = value => typeof value === 'number' ? value : Number(value);\nconst latitude = number(b.instructorLatitude);\nconst longitude = number(b.instructorLongitude);\nconst accuracy = number(b.instructorAccuracy);\nconst timestamp = number(b.instructorLocationTimestamp);\nconst now = Date.now();\nconst coordinatesValid = !missing && Number.isFinite(latitude) && Number.isFinite(longitude) && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;\nconst accuracyValid = !missing && Number.isFinite(accuracy) && accuracy > 0;\nconst timestampFresh = !missing && Number.isFinite(timestamp) && timestamp <= now && now - timestamp <= MAX_LOCATION_AGE_SECONDS * 1000;\nlet locationQualityStatus = 'VERIFIED';\nif (!coordinatesValid || !accuracyValid || !timestampFresh) locationQualityStatus = 'REJECTED';\nelse if (accuracy > MAX_GPS_ACCURACY_METERS) locationQualityStatus = POLICY === 'REVIEW' ? 'NEEDS_REVIEW' : 'REJECTED';\nif (locationQualityStatus === 'REJECTED') {\n  return [{ json: { ok: false, error: missing ? 'LOCATION_UNAVAILABLE' : !coordinatesValid ? 'INVALID_LOCATION' : !timestampFresh ? 'STALE_LOCATION' : 'LOW_ACCURACY' } }];\n}\n\nconst rand = (n) => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };\nconst wf = $getWorkflowStaticData('global');\nconst sessionId = 'S' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + rand(4);\nwf.session = {\n  active: true,\n  sessionId,\n  lecture: String(b.lecture || 'Lecture').trim(),\n  token: rand(6),\n  issuedAt: Date.now(),\n  location: { latitude, longitude, accuracy, timestamp },\n  locationQualityStatus,\n  locationConfig: { radiusMeters: ATTENDANCE_RADIUS_METERS, maxAccuracyMeters: MAX_GPS_ACCURACY_METERS, maxAgeSeconds: MAX_LOCATION_AGE_SECONDS, policy: POLICY === 'REJECT' ? 'REJECT' : 'REVIEW' },\n  locationStats: { verified: 0, outsideRadius: 0, needsReview: 0 }\n};\nreturn [{ json: { ok: true, sessionId, lecture: wf.session.lecture, attendanceRadiusMeters: ATTENDANCE_RADIUS_METERS, locationQualityStatus } }];"
       },
       "id": "c11e2f4f-9f89-4a70-a9d3-5dc2cc9b8eff",
       "name": "Create Session",
@@ -81,7 +81,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const KEY = 'MySecretyKey2005';\nconst q = $input.first().json.query || {};\nif (q.key !== KEY) return [{ json: { ok: false, error: 'unauthorized' } }];\n\nconst wf = $getWorkflowStaticData('global');\nconst s = wf.session;\nif (!s || !s.active) return [{ json: { ok: true, active: false } }];\n\nconst TTL = 10000;\nconst rand = (n) => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };\nconst now = Date.now();\nif (now - s.issuedAt >= TTL) {\n  s.token = rand(6); // old token is overwritten = invalid\n  s.issuedAt += TTL * Math.floor((now - s.issuedAt) / TTL); // keep a clean 10s grid\n}\nreturn [{ json: {\n  ok: true, active: true,\n  sessionId: s.sessionId, lecture: s.lecture,\n  token: s.token,\n  expiresInMs: TTL - (Date.now() - s.issuedAt)\n} }];"
+        "jsCode": "const KEY = 'MySecretyKey2005';\nconst q = $input.first().json.query || {};\nif (q.key !== KEY) return [{ json: { ok: false, error: 'unauthorized' } }];\n\nconst wf = $getWorkflowStaticData('global');\nconst s = wf.session;\nif (!s || !s.active) return [{ json: { ok: true, active: false } }];\n\nconst TTL = 10000;\nconst rand = (n) => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };\nconst now = Date.now();\nif (now - s.issuedAt >= TTL) {\n  s.token = rand(6); // old token is overwritten = invalid\n  s.issuedAt += TTL * Math.floor((now - s.issuedAt) / TTL); // keep a clean 10s grid\n}\nreturn [{ json: {\n  ok: true, active: true,\n  sessionId: s.sessionId, lecture: s.lecture,\n  token: s.token,\n  expiresInMs: TTL - (Date.now() - s.issuedAt),\n  attendanceRadiusMeters: s.locationConfig ? s.locationConfig.radiusMeters : 100,\n  instructorAccuracyMeters: s.location ? s.location.accuracy : null,\n  locationStats: s.locationStats || { verified: 0, outsideRadius: 0, needsReview: 0 },\n  locationQualityStatus: s.locationQualityStatus || 'REJECTED'\n} }];"
       },
       "id": "3f9f389e-f28a-435f-ab2a-d536f8f5c57f",
       "name": "Rotate If Needed",
@@ -126,7 +126,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const KEY = 'MySecretyKey2005';\nif (($input.first().json.body || {}).key !== KEY) return [{ json: { ok: false } }];\nconst wf = $getWorkflowStaticData('global');\nif (wf.session) { wf.session.active = false; wf.session.token = null; }\nreturn [{ json: { ok: true } }];"
+        "jsCode": "const KEY = 'MySecretyKey2005';\nif (($input.first().json.body || {}).key !== KEY) return [{ json: { ok: false } }];\nconst wf = $getWorkflowStaticData('global');\nif (wf.session) wf.session = { active: false, sessionId: wf.session.sessionId, token: null };\nreturn [{ json: { ok: true } }];"
       },
       "id": "486104aa-fd03-4a38-82f4-7443d7e1908c",
       "name": "Stop Session",
@@ -283,7 +283,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const b = $input.first().json.body || {};\nconst [sessionId, token, exp, sig] = String(b.ticket || '').split('.');\nreturn [{ json: {\n  sessionId, token, exp: Number(exp), sig,\n  payload: `${sessionId}.${token}.${exp}`,\n  name: String(b.name || '').trim(),\n  studentId: String(b.studentId || '').trim(),\n  email: String(b.email || '').trim().toLowerCase(),\n  deviceId: String(b.deviceId || '').trim()\n} }];"
+        "jsCode": "const b = $input.first().json.body || {};\nconst [sessionId, token, exp, sig] = String(b.ticket || '').split('.');\nconst number = value => value === undefined || value === null || String(value).trim() === '' ? NaN : typeof value === 'number' ? value : Number(value);\nreturn [{ json: {\n  sessionId, token, exp: Number(exp), sig,\n  payload: `${sessionId}.${token}.${exp}`,\n  name: String(b.name || '').trim(),\n  studentId: String(b.studentId || '').trim(),\n  email: String(b.email || '').trim().toLowerCase(),\n  deviceId: String(b.deviceId || '').trim(),\n  studentLatitude: number(b.studentLatitude),\n  studentLongitude: number(b.studentLongitude),\n  studentAccuracy: number(b.studentAccuracy),\n  studentLocationTimestamp: number(b.studentLocationTimestamp)\n} }];"
       },
       "id": "94a5ad5e-f6af-4cb6-bc22-8e140a11069d",
       "name": "Parse Submission",
@@ -313,7 +313,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const j = $input.first().json;\nconst s = $getWorkflowStaticData('global').session;\nlet reason = '';\nif (j.sig !== j.expectedSig) reason = 'BAD_TICKET';\nelse if (Date.now() > j.exp) reason = 'TICKET_EXPIRED';\nelse if (!s || !s.active || s.sessionId !== j.sessionId) reason = 'SESSION_CLOSED';\nelse if (!j.name || !j.studentId || !j.email) reason = 'MISSING_FIELDS';\nelse if (!j.deviceId) reason = 'DEVICE_ID_REQUIRED';\nelse if (!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(j.email)) reason = 'BAD_EMAIL';\n// optional: else if (!j.email.endsWith('@your-university.edu')) reason = 'BAD_EMAIL';\nreturn [{ json: { ...j, valid: reason === '', reason, lecture: s ? s.lecture : '' } }];"
+        "jsCode": "const j = $input.first().json;\nconst s = $getWorkflowStaticData('global').session;\nconst config = s && s.locationConfig ? s.locationConfig : { radiusMeters: 100, maxAccuracyMeters: 50, maxAgeSeconds: 30, policy: 'REVIEW' };\nlet reason = '';\nif (j.sig !== j.expectedSig) reason = 'BAD_TICKET';\nelse if (!Number.isFinite(j.exp) || Date.now() > j.exp) reason = 'TICKET_EXPIRED';\nelse if (!s || !s.active || s.sessionId !== j.sessionId) reason = 'SESSION_CLOSED';\nelse if (!j.name || !j.studentId || !j.email) reason = 'MISSING_FIELDS';\nelse if (!j.deviceId) reason = 'DEVICE_ID_REQUIRED';\nelse if (!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(j.email)) reason = 'BAD_EMAIL';\n\nlet locationStatus = 'LOCATION_UNAVAILABLE';\nlet distanceMeters = null;\nif (!reason) {\n  const values = [j.studentLatitude, j.studentLongitude, j.studentAccuracy, j.studentLocationTimestamp];\n  const missing = values.some(value => value === undefined || value === null || Number.isNaN(value));\n  const finite = values.every(Number.isFinite);\n  const coordinatesValid = finite && j.studentLatitude >= -90 && j.studentLatitude <= 90 && j.studentLongitude >= -180 && j.studentLongitude <= 180;\n  if (missing) locationStatus = 'LOCATION_UNAVAILABLE';\n  else if (!coordinatesValid) locationStatus = 'INVALID_LOCATION';\n  else if (j.studentAccuracy <= 0 || !s.location || s.location.accuracy <= 0) locationStatus = 'INVALID_LOCATION';\n  else if (j.studentAccuracy > config.maxAccuracyMeters || s.location.accuracy > config.maxAccuracyMeters || s.locationQualityStatus === 'NEEDS_REVIEW') locationStatus = config.policy === 'REVIEW' ? 'NEEDS_REVIEW' : 'LOW_ACCURACY';\n  else if (Date.now() - j.studentLocationTimestamp < 0 || Date.now() - j.studentLocationTimestamp > config.maxAgeSeconds * 1000) locationStatus = 'STALE_LOCATION';\n  else {\n    const toRadians = value => value * Math.PI / 180;\n    const earthRadius = 6371000;\n    const dLat = toRadians(j.studentLatitude - s.location.latitude);\n    const dLon = toRadians(j.studentLongitude - s.location.longitude);\n    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRadians(s.location.latitude)) * Math.cos(toRadians(j.studentLatitude)) * Math.sin(dLon / 2) ** 2;\n    distanceMeters = 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));\n    locationStatus = distanceMeters <= config.radiusMeters ? 'VERIFIED' : 'OUTSIDE_RADIUS';\n    if (locationStatus === 'OUTSIDE_RADIUS' && config.policy === 'REVIEW') locationStatus = 'NEEDS_REVIEW';\n  }\n  if (locationStatus !== 'VERIFIED' && !(locationStatus === 'NEEDS_REVIEW' && config.policy === 'REVIEW')) reason = locationStatus;\n}\nreturn [{ json: { ...j, valid: reason === '', reason, lecture: s ? s.lecture : '', locationStatus, distanceMeters, instructorLatitude: s && s.location ? s.location.latitude : null, instructorLongitude: s && s.location ? s.location.longitude : null, instructorAccuracy: s && s.location ? s.location.accuracy : null, locationTimestamp: j.studentLocationTimestamp, reviewStatus: locationStatus === 'NEEDS_REVIEW' ? 'Needs Review' : locationStatus === 'VERIFIED' ? 'Confirmed' : 'Rejected' } }];"
       },
       "id": "32e03352-64c4-42b4-abe1-8bf23939e74b",
       "name": "Validate Submission",
@@ -495,7 +495,17 @@
             "Email": "={{ $('Validate Submission').first().json.email }}",
             "Attendance Time": "={{ $now.toFormat('yyyy-MM-dd HH:mm:ss') }}",
             "Token": "={{ $('Validate Submission').first().json.token }}",
-            "Status": "Present"
+            "Status": "={{ $('Validate Submission').first().json.locationStatus === 'VERIFIED' ? 'Present' : 'Needs Review' }}",
+            "Instructor Latitude": "={{ $('Validate Submission').first().json.instructorLatitude }}",
+            "Instructor Longitude": "={{ $('Validate Submission').first().json.instructorLongitude }}",
+            "Student Latitude": "={{ $('Validate Submission').first().json.studentLatitude }}",
+            "Student Longitude": "={{ $('Validate Submission').first().json.studentLongitude }}",
+            "Distance (m)": "={{ $('Validate Submission').first().json.distanceMeters }}",
+            "Instructor GPS Accuracy (m)": "={{ $('Validate Submission').first().json.instructorAccuracy }}",
+            "Student GPS Accuracy (m)": "={{ $('Validate Submission').first().json.studentAccuracy }}",
+            "Location Status": "={{ $('Validate Submission').first().json.locationStatus }}",
+            "Location Timestamp": "={{ $('Validate Submission').first().json.locationTimestamp }}",
+            "Review Status": "={{ $('Validate Submission').first().json.reviewStatus }}"
           },
           "matchingColumns": [],
           "schema": [
@@ -570,6 +580,96 @@
               "display": true,
               "type": "string",
               "canBeUsedToMatch": true
+            },
+            {
+              "id": "Instructor Latitude",
+              "displayName": "Instructor Latitude",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Instructor Longitude",
+              "displayName": "Instructor Longitude",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Student Latitude",
+              "displayName": "Student Latitude",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Student Longitude",
+              "displayName": "Student Longitude",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Distance (m)",
+              "displayName": "Distance (m)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Instructor GPS Accuracy (m)",
+              "displayName": "Instructor GPS Accuracy (m)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Student GPS Accuracy (m)",
+              "displayName": "Student GPS Accuracy (m)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Location Status",
+              "displayName": "Location Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Location Timestamp",
+              "displayName": "Location Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Review Status",
+              "displayName": "Review Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
             }
           ]
         },
@@ -594,7 +694,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { ok: true } }}",
+        "responseBody": "={{ { ok: true, locationStatus: $('Validate Submission').first().json.locationStatus, reviewStatus: $('Validate Submission').first().json.reviewStatus } }}",
         "options": {}
       },
       "id": "44d86eae-6430-490e-ab80-74903a2b208f",
@@ -609,8 +709,8 @@
     {
       "parameters": {
         "sendTo": "={{ $('Validate Submission').first().json.email }}",
-        "subject": "=Attendance Confirmed — {{ $('Validate Submission').first().json.lecture }}",
-        "message": "=<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>Attendance Confirmed</title>\n</head>\n\n<body style=\"margin:0; padding:0; background-color:#f4f7fb; font-family:Arial, Helvetica, sans-serif; color:#172033;\">\n\n  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background-color:#f4f7fb; padding:40px 15px;\">\n    <tr>\n      <td align=\"center\">\n\n        <!-- Main Container -->\n        <table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"\n          style=\"max-width:600px; width:100%; background:#ffffff; border-radius:18px; overflow:hidden; box-shadow:0 8px 30px rgba(15,23,42,0.08);\">\n\n          <!-- Header -->\n          <tr>\n            <td style=\"background:#0f172a; padding:32px 40px; text-align:center;\">\n\n              <div style=\"font-size:14px; font-weight:bold; letter-spacing:2px; color:#94a3b8; text-transform:uppercase;\">\n                Data Security\n              </div>\n\n              <div style=\"font-size:28px; font-weight:700; color:#ffffff; margin-top:10px;\">\n                Attendance Confirmed\n              </div>\n\n              <div style=\"font-size:14px; color:#cbd5e1; margin-top:8px;\">\n                Your attendance has been successfully recorded.\n              </div>\n\n            </td>\n          </tr>\n\n          <!-- Success Icon -->\n          <tr>\n            <td align=\"center\" style=\"padding:32px 40px 10px 40px;\">\n\n              <div style=\"\n                width:64px;\n                height:64px;\n                line-height:64px;\n                background:#ecfdf5;\n                border-radius:50%;\n                color:#16a34a;\n                font-size:32px;\n                font-weight:bold;\n                margin:auto;\n              \">\n                ✓\n              </div>\n\n            </td>\n          </tr>\n\n          <!-- Message -->\n          <tr>\n            <td style=\"padding:20px 45px 10px 45px; text-align:center;\">\n\n              <div style=\"font-size:16px; line-height:1.7; color:#475569;\">\n                Your attendance for today's\n                <strong style=\"color:#0f172a;\">\n                  {{ $('Validate Submission').first().json.lecture }}\n                </strong>\n                lecture has been successfully recorded.\n              </div>\n\n            </td>\n          </tr>\n\n          <!-- Attendance Details -->\n          <tr>\n            <td style=\"padding:25px 45px;\">\n\n              <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"\n                style=\"background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px;\">\n\n                <tr>\n                  <td style=\"padding:18px 20px; border-bottom:1px solid #e2e8f0;\">\n                    <span style=\"font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:0.8px;\">\n                      Status\n                    </span>\n                    <br>\n                    <span style=\"font-size:16px; font-weight:700; color:#16a34a;\">\n                      ● Present\n                    </span>\n                  </td>\n                </tr>\n\n                <tr>\n                  <td style=\"padding:18px 20px; border-bottom:1px solid #e2e8f0;\">\n                    <span style=\"font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:0.8px;\">\n                      Lecture\n                    </span>\n                    <br>\n                    <span style=\"font-size:16px; font-weight:600; color:#0f172a;\">\n                      {{ $('Validate Submission').first().json.lecture }}\n                    </span>\n                  </td>\n                </tr>\n\n                <tr>\n                  <td style=\"padding:18px 20px;\">\n                    <span style=\"font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:0.8px;\">\n                      Recorded At\n                    </span>\n                    <br>\n                    <span style=\"font-size:16px; font-weight:600; color:#0f172a;\">\n                      {{ $now.toFormat('yyyy-MM-dd · HH:mm') }}\n                    </span>\n                  </td>\n                </tr>\n\n              </table>\n\n            </td>\n          </tr>\n\n          <!-- Confirmation Message -->\n          <tr>\n            <td style=\"padding:5px 45px 30px 45px; text-align:center;\">\n\n              <div style=\"font-size:14px; line-height:1.6; color:#64748b;\">\n                You don't need to take any further action.\n                This email confirms that your attendance has been registered successfully.\n              </div>\n\n            </td>\n          </tr>\n\n          <!-- Footer -->\n          <tr>\n            <td style=\"background:#f8fafc; border-top:1px solid #e2e8f0; padding:24px 40px; text-align:center;\">\n\n              <div style=\"font-size:13px; font-weight:600; color:#334155;\">\n                {{ $('Validate Submission').first().json.lecture }} Attendance System\n              </div>\n\n              <div style=\"font-size:12px; color:#94a3b8; margin-top:7px;\">\n                Automated attendance confirmation\n              </div>\n\n              <div style=\"font-size:11px; color:#cbd5e1; margin-top:14px;\">\n                Please do not reply to this automated email.\n              </div>\n\n            </td>\n          </tr>\n\n        </table>\n\n      </td>\n    </tr>\n  </table>\n\n</body>\n</html>",
+        "subject": "=Attendance Confirmed â€” {{ $('Validate Submission').first().json.lecture }}",
+        "message": "=<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>Attendance Confirmed</title>\n</head>\n\n<body style=\"margin:0; padding:0; background-color:#f4f7fb; font-family:Arial, Helvetica, sans-serif; color:#172033;\">\n\n  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background-color:#f4f7fb; padding:40px 15px;\">\n    <tr>\n      <td align=\"center\">\n\n        <!-- Main Container -->\n        <table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"\n          style=\"max-width:600px; width:100%; background:#ffffff; border-radius:18px; overflow:hidden; box-shadow:0 8px 30px rgba(15,23,42,0.08);\">\n\n          <!-- Header -->\n          <tr>\n            <td style=\"background:#0f172a; padding:32px 40px; text-align:center;\">\n\n              <div style=\"font-size:14px; font-weight:bold; letter-spacing:2px; color:#94a3b8; text-transform:uppercase;\">\n                Data Security\n              </div>\n\n              <div style=\"font-size:28px; font-weight:700; color:#ffffff; margin-top:10px;\">\n                Attendance Confirmed\n              </div>\n\n              <div style=\"font-size:14px; color:#cbd5e1; margin-top:8px;\">\n                Your attendance has been successfully recorded.\n              </div>\n\n            </td>\n          </tr>\n\n          <!-- Success Icon -->\n          <tr>\n            <td align=\"center\" style=\"padding:32px 40px 10px 40px;\">\n\n              <div style=\"\n                width:64px;\n                height:64px;\n                line-height:64px;\n                background:#ecfdf5;\n                border-radius:50%;\n                color:#16a34a;\n                font-size:32px;\n                font-weight:bold;\n                margin:auto;\n              \">\n                âœ“\n              </div>\n\n            </td>\n          </tr>\n\n          <!-- Message -->\n          <tr>\n            <td style=\"padding:20px 45px 10px 45px; text-align:center;\">\n\n              <div style=\"font-size:16px; line-height:1.7; color:#475569;\">\n                Your attendance for today's\n                <strong style=\"color:#0f172a;\">\n                  {{ $('Validate Submission').first().json.lecture }}\n                </strong>\n                lecture has been successfully recorded.\n              </div>\n\n            </td>\n          </tr>\n\n          <!-- Attendance Details -->\n          <tr>\n            <td style=\"padding:25px 45px;\">\n\n              <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"\n                style=\"background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px;\">\n\n                <tr>\n                  <td style=\"padding:18px 20px; border-bottom:1px solid #e2e8f0;\">\n                    <span style=\"font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:0.8px;\">\n                      Status\n                    </span>\n                    <br>\n                    <span style=\"font-size:16px; font-weight:700; color:#16a34a;\">\n                      â— Present\n                    </span>\n                  </td>\n                </tr>\n\n                <tr>\n                  <td style=\"padding:18px 20px; border-bottom:1px solid #e2e8f0;\">\n                    <span style=\"font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:0.8px;\">\n                      Lecture\n                    </span>\n                    <br>\n                    <span style=\"font-size:16px; font-weight:600; color:#0f172a;\">\n                      {{ $('Validate Submission').first().json.lecture }}\n                    </span>\n                  </td>\n                </tr>\n\n                <tr>\n                  <td style=\"padding:18px 20px;\">\n                    <span style=\"font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:0.8px;\">\n                      Recorded At\n                    </span>\n                    <br>\n                    <span style=\"font-size:16px; font-weight:600; color:#0f172a;\">\n                      {{ $now.toFormat('yyyy-MM-dd Â· HH:mm') }}\n                    </span>\n                  </td>\n                </tr>\n\n              </table>\n\n            </td>\n          </tr>\n\n          <!-- Confirmation Message -->\n          <tr>\n            <td style=\"padding:5px 45px 30px 45px; text-align:center;\">\n\n              <div style=\"font-size:14px; line-height:1.6; color:#64748b;\">\n                You don't need to take any further action.\n                This email confirms that your attendance has been registered successfully.\n              </div>\n\n            </td>\n          </tr>\n\n          <!-- Footer -->\n          <tr>\n            <td style=\"background:#f8fafc; border-top:1px solid #e2e8f0; padding:24px 40px; text-align:center;\">\n\n              <div style=\"font-size:13px; font-weight:600; color:#334155;\">\n                {{ $('Validate Submission').first().json.lecture }} Attendance System\n              </div>\n\n              <div style=\"font-size:12px; color:#94a3b8; margin-top:7px;\">\n                Automated attendance confirmation\n              </div>\n\n              <div style=\"font-size:11px; color:#cbd5e1; margin-top:14px;\">\n                Please do not reply to this automated email.\n              </div>\n\n            </td>\n          </tr>\n\n        </table>\n\n      </td>\n    </tr>\n  </table>\n\n</body>\n</html>",
         "options": {
           "appendAttribution": false,
           "senderName": "Attendance System"
@@ -671,7 +771,7 @@
       "parameters": {
         "resource": "message",
         "operation": "send",
-        "subject": "=Attendance Confirmed — {{ $('Validate Submission').first().json.lecture }}",
+        "subject": "=Attendance Confirmed â€” {{ $('Validate Submission').first().json.lecture }}",
         "bodyContent": "=<p>Your attendance for <strong>{{ $('Validate Submission').first().json.lecture }}</strong> has been successfully recorded.</p><p>Status: Present</p><p>Recorded at: {{ $now.toFormat('yyyy-MM-dd HH:mm') }}</p>",
         "toRecipients": "={{ $('Validate Submission').first().json.email }}",
         "bodyContentType": "html",
@@ -692,6 +792,52 @@
         }
       },
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const wf = $getWorkflowStaticData('global');\nconst s = wf.session;\nconst result = $('Validate Submission').first().json;\nif (s && s.locationStats) {\n  if (result.locationStatus === 'VERIFIED') s.locationStats.verified += 1;\n  if (result.locationStatus === 'OUTSIDE_RADIUS') { s.locationStats.outsideRadius += 1; s.locationStats.needsReview += 1; }\n}\nreturn [{ json: { ...result } }];"
+      },
+      "id": "a8f3c0d1-8ae5-45a7-a2d0-5c6e6be8d1d1",
+      "name": "Update Location Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        1104
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d15d9a16-9e83-4d4c-a6a1-9f7e8fdb42a4",
+              "leftValue": "={{ $('Validate Submission').first().json.locationStatus }}",
+              "rightValue": "VERIFIED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f20a6ce2-1f0e-44b7-bf29-48f0b4f4b21a",
+      "name": "Verified Location?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2336,
+        1104
+      ]
     }
   ],
   "pinData": {},
@@ -908,7 +1054,7 @@
       "main": [
         [
           {
-            "node": "Respond Success",
+            "node": "Update Location Stats",
             "type": "main",
             "index": 0
           }
@@ -919,7 +1065,7 @@
       "main": [
         [
           {
-            "node": "Use Outlook Email?",
+            "node": "Verified Location?",
             "type": "main",
             "index": 0
           }
@@ -942,6 +1088,29 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "Update Location Stats": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verified Location?": {
+      "main": [
+        [
+          {
+            "node": "Use Outlook Email?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },
