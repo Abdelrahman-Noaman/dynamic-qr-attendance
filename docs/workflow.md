@@ -6,7 +6,6 @@ This document describes the behavior present in the exported n8n workflow. It do
 
 `POST /dqr-start` checks the submitted professor key. For an authorized request, it creates a session ID, stores the lecture name, creates the first random token, and marks the session active in workflow static data.
 
-<<<<<<< HEAD
 The request must also carry the professor-confirmed lecture-hall reference:
 
 ```text
@@ -27,15 +26,6 @@ The legacy `instructorLocationSource: "gps"` path is still accepted for tools
 that send a device reading; it keeps the original checks (coordinate range,
 positive accuracy ≤ 50 m, capture age ≤ 30 s, `STALE_LOCATION` /
 `LOW_ACCURACY`). The dashboard never uses it.
-=======
-The request must also contain one instructor location reading. n8n validates
-the coordinate range, positive accuracy, and a capture time no older than 30
-seconds. The quality policy is configurable in the server-side `Create Session` Code
-node as strict rejection or `REJECT`; it is not trusted from the browser. With
-strict rejection (the default), an instructor reading above the 50 m quality target is
-stored as `REJECTED`; the session may start, but it cannot produce
-location-verified attendance. With `REJECT`, the session start fails.
->>>>>>> c04910a (Save local updates before syncing)
 
 ## 2. Generate Token
 
@@ -69,7 +59,6 @@ rather than a replacement for student identity verification.
 
 The workflow does not currently enforce a specific university email domain.
 
-<<<<<<< HEAD
 The student page still uses real browser geolocation: high accuracy, no cached
 fixes, up to three sequential readings inside a 30 s window, and the most
 accurate fresh reading is submitted. If no reading meets the 50 m target the
@@ -97,16 +86,6 @@ to the student page and are not written to Sheets.
 
 Session counters in workflow static data are `{ verified, outsideRadius,
 rejected }`; `needsReview` no longer exists.
-=======
-The student page requests one location reading only after `/dqr-check` succeeds.
-The workflow validates both coordinate pairs, positive accuracy at or below
-50 m, and a capture age at or below 30 seconds. It calculates the Haversine
-distance against the instructor's session reference. Outcomes are
-`VERIFIED`, `OUTSIDE_RADIUS`, `LOW_ACCURACY`, `STALE_LOCATION`,
-`INVALID_LOCATION`, and `LOCATION_UNAVAILABLE`. The default strict rejection policy
-stores outside-radius attempts as `Rejected`; all other non-verified
-outcomes are rejected.
->>>>>>> c04910a (Save local updates before syncing)
 
 `ATTENDANCE_RADIUS_METERS` (100 m) controls instructor/student distance.
 `MAX_GPS_ACCURACY_METERS` (50 m) controls uncertainty and is intentionally a
@@ -123,7 +102,6 @@ and does not append another row.
 
 ## 8. Record Attendance
 
-<<<<<<< HEAD
 Only accepted submissions reach this node. A row is appended to the
 `Attendance` sheet with the original fields plus the instructor/student
 coordinates, distance, both accuracy values, location status, location
@@ -133,12 +111,6 @@ coordinates written are the exact values used in the distance calculation, and
 `Instructor GPS Accuracy (m)` is empty for a map reference (there is no measured
 accuracy to report). `Status` is `Present` for every row that is written, and
 only `VERIFIED` rows continue to the email branch.
-=======
-A new row is appended to the `Attendance` sheet with the original fields plus
-the instructor/student coordinates, distance, both accuracy values, location
-status, location timestamp, and review status. `Present` is retained only for
-verified rows; rejected attempts use `Rejected`.
->>>>>>> c04910a (Save local updates before syncing)
 
 ## 9. Send Confirmation
 
