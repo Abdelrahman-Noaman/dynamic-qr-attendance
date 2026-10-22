@@ -12,6 +12,7 @@ import {
   useAttendance,
 } from "./hooks/useAttendance";
 import { usePointerFx } from "./hooks/usePointerFx";
+import { LOCATION_QUALITY } from "./utils/location";
 
 export default function App() {
   // Same contract as the original page: the professor key lives in ?key=…
@@ -77,7 +78,7 @@ export default function App() {
                 locationBusy={a.locationBusy}
                 hasLocation={Boolean(a.instructorLocation)}
                 attendanceRadiusMeters={a.attendanceRadiusMeters}
-                maxAccuracyMeters={50}
+                maxAccuracyMeters={LOCATION_QUALITY.targetAccuracyMeters}
                 reportedAccuracyMeters={a.instructorLocation?.accuracy ?? null}
                 locationQualityStatus={a.locationQualityStatus}
                 locationQualityPolicy={LOCATION_QUALITY_POLICY}

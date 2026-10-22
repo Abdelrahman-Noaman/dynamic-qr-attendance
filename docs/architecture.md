@@ -30,6 +30,17 @@ flowchart TD
 
 `frontend/student-attendance.html` reads the session and token from the QR URL, immediately removes them from the address bar, asks n8n to validate the scan, and submits the returned ticket with the student's form data.
 
+### Shared location module
+
+`frontend/location-core.js` is the single implementation of geolocation
+acquisition and reading validation, imported by both the dashboard
+(`src/utils/location.ts`) and the student page. It requests high-accuracy,
+never-cached fixes, collects up to three readings inside a bounded window, keeps
+the most accurate fresh reading, and rejects readings with out-of-range
+coordinates, non-positive accuracy, missing timestamps, or stale capture times.
+The attendance radius stays on the server and is independent of the accuracy
+target.
+
 ### n8n
 
 `n8n/dynamic-qr-attendance.json` exposes five webhooks:
@@ -58,6 +69,13 @@ The browser is untrusted. It can submit arbitrary form values and tickets, so th
 
 Location is captured only during the start and attendance flows, not continuously.
 The default policy is `REVIEW`: outside-radius attempts are auditable but are
-not marked verified and do not receive a verified-attendance email.
+not marked verified and do not receive a verified-attendance email. Imprecise
+readings are re-requested first; if none meets the 50 m accuracy target the
+attempt is rejected with `LOW_ACCURACY` (or `INSTRUCTOR_LOW_ACCURACY` for the
+session reference) instead of being recorded as outside the radius.
+
+The student page loads `frontend/location-core.js` as an ES module, so it must
+be served over HTTP(S) together with its sibling module file; opening the page
+from the filesystem will not initialise.
 
 The professor key and HMAC secret are placeholders in the public export. Configure private values in the n8n workflow before activation.

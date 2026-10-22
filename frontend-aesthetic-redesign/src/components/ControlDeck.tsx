@@ -178,18 +178,20 @@ export function ControlDeck({
             </button>
           </div>
           <p className="mt-3 text-xs leading-relaxed text-cream/55">
-            Attendance uses a one-time browser reading. GPS accuracy is an estimate, especially indoors.
-            Reported accuracy:{" "}
+            Fresh browser readings only — cached positions are refused. Up to three
+            readings are collected inside a bounded window and the most accurate one
+            is kept. Reported accuracy:{" "}
             {reportedAccuracyMeters === null
               ? "not available"
               : `±${Math.round(reportedAccuracyMeters)} m`}
-            . Readings above {maxAccuracyMeters} m are{" "}
+            . Requesting high accuracy does not guarantee an accurate position, so a
+            reading above the {maxAccuracyMeters} m quality target is{" "}
             {locationQualityPolicy === "REVIEW"
               ? "kept as Needs Review and cannot verify attendance"
-              : "rejected"}.
-            Configured attendance radius: {attendanceRadiusMeters} m. Move
-            outdoors, enable device location services, and retry for a clearer
-            reading.
+              : "rejected after the retries"}{" "}
+            — the reading is re-requested first. GPS accuracy is deliberately
+            separate from the {attendanceRadiusMeters} m attendance radius. Move
+            outdoors, enable device location services, and retry for a clearer reading.
           </p>
         </div>
 

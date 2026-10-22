@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:location": "node tests/location-policy.test.mjs"
+    "test": "node tests/location-policy.test.mjs && node --test tests/location-acquisition.test.mjs tests/student-page.test.mjs",
+    "test:location": "node tests/location-policy.test.mjs",
+    "test:acquisition": "node --test tests/location-acquisition.test.mjs tests/student-page.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/unbounded": "^5.3.0",

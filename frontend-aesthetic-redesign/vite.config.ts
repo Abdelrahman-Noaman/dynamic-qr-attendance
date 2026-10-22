@@ -16,4 +16,14 @@ export default defineConfig({
       "@": path.resolve(__dirname, "src"),
     },
   },
+  server: {
+    // The shared geolocation module lives in ../frontend so the student page and
+    // this dashboard use one implementation; allow the dev server to read it.
+    host: true,
+    allowedHosts: true,
+    fs: {
+      allow: [path.resolve(__dirname), path.resolve(__dirname, "..")],
+    },
+  },
+  preview: { host: true, allowedHosts: true },
 });

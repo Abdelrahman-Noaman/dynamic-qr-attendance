@@ -255,11 +255,28 @@ The final submission is validated again before attendance is recorded. The syste
 
 #### 5. Location Verification
 
-Before starting a session, the instructor shares one browser geolocation
-reading. The active session stores the reference coordinates, reported
-accuracy, and capture time in n8n state. After QR validation, the student is
-asked for one fresh reading. The workflow validates both readings, calculates
-the Haversine distance on the backend, and applies:
+Both the instructor dashboard and the student page load the same module,
+`frontend/location-core.js`, so the two roles are acquired and judged by
+identical rules. Each request uses:
+
+```text
+enableHighAccuracy: true
+maximumAge: 0                # cached fixes are refused
+timeout: 12000 ms per call   # browser hint
+maxAttempts: 3               # sequential fresh readings
+totalTimeoutMs: 30000        # bounded window, then a clear error
+```
+
+The most accurate *fresh* reading wins. A reading is accepted only when the
+coordinates are in range, the accuracy is a positive number, and the capture
+timestamp is recent — an old reading is never reused as the current position.
+Requesting high accuracy does **not** guarantee an accurate position; the
+reported accuracy is displayed in meters so the reader can judge it.
+
+The instructor's reference reading is stored in n8n state. After QR
+validation, the student is asked for their own fresh reading. The workflow
+validates both readings, calculates the Haversine distance on the backend, and
+applies:
 
 ```text
 ATTENDANCE_RADIUS_METERS = 100
@@ -269,17 +286,22 @@ LOCATION_DECISION_POLICY = REVIEW
 LOCATION_QUALITY_POLICY = REVIEW
 ```
 
-Only fresh, accurate readings within the radius are `VERIFIED`. Under the
-default `REVIEW` policy, outside-radius attempts are recorded as `Needs
-Review`; low-accuracy readings follow the instructor quality policy, while
-stale, invalid, or unavailable readings are rejected. The browser never
-decides the final outcome.
+Only fresh, accurate readings within the radius are `VERIFIED`. GPS accuracy
+and the attendance radius are separate settings: a reading that is too
+imprecise is re-requested, and if no acceptable reading is obtained the attempt
+is rejected with `LOW_ACCURACY` (or `INSTRUCTOR_LOW_ACCURACY` when the session
+reference itself is imprecise) rather than being reported as outside the
+radius. Under the default `REVIEW` policy, genuine outside-radius attempts are
+recorded as `Needs Review`. Stale, invalid, and unavailable readings are
+rejected. The browser never decides the final outcome.
 
 The instructor quality policy is configured in the n8n `Create Session` Code
 node, not trusted from the browser, and is separate from the attendance radius:
 `REVIEW` allows a poor-quality instructor reading to start a session as
-`NEEDS_REVIEW`, but no submission from that session can be location-verified.
-`REJECT` prevents session start until the reading meets the quality target.
+`NEEDS_REVIEW`, but submissions are then rejected as `INSTRUCTOR_LOW_ACCURACY`
+(the reference is too imprecise for a meaningful distance), so refresh the
+instructor location before starting. `REJECT` prevents session start until the
+reading meets the quality target.
 
 #### 6. Duplicate Prevention
 
@@ -366,16 +388,38 @@ Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | T
 
 ### 📍 Location Verification
 
-The professor dashboard provides a **Share my location** control, accuracy,
-the configured radius, and live verified/outside-radius/review counts. The
-student page requests location only after the QR passes `/dqr-check` and
-provides a retry path when permission or services fail. Geolocation requires
-HTTPS (except localhost) and explicit browser/device permission.
+The professor dashboard provides a **Share my location** control, the reported
+accuracy in meters, the configured radius, and live verified/outside-radius/
+review counts. If the saved reading is older than the freshness limit, the
+dashboard re-acquires a fresh one before starting a session instead of sending
+the old coordinates. The student page requests location only after the QR
+passes `/dqr-check`, shows each attempt's reported accuracy, and refuses to
+submit when no reading meets the quality target. Geolocation requires HTTPS
+(except localhost) and explicit browser/device permission.
 
 The workflow uses the Haversine great-circle calculation and records only the
-coordinates and accuracy needed for attendance auditing. Browser GPS is an
-estimate, may be inaccurate indoors, and can be spoofed; it is not
-cryptographic proof of physical presence.
+coordinates, distance, and accuracy values needed for attendance auditing.
+Worked example (the row that previously reported `12.99753367`):
+
+```text
+instructor: 29.99625519, 30.96586222
+student:    29.9963212,  30.96691445
+distance:   101.59653631559846 m  ->  101.6 m in the sheet
+outcome:    OUTSIDE_RADIUS (100 m radius) -> Needs Review under REVIEW policy
+```
+
+Re-running the exported workflow code with those coordinates returns
+`101.6 m`, so the Haversine implementation and field wiring are correct; an
+eight-decimal value like `12.99753367` cannot come from that pair and matches a
+typical GPS *accuracy* reading instead. The row therefore mixed up data — the
+usual causes are a stale/mismatched reference reading or a value copied into
+the wrong column. In this version the distance is rounded to two decimals, is
+computed only from the validated coordinates that are written to the sheet, and
+is always accompanied by the `Location Status` classification, so a row can be
+re-checked directly.
+
+Browser GPS is an estimate, may be inaccurate indoors, and can be spoofed; it
+is not cryptographic proof of physical presence.
 
 ### 📧 Confirmation Email
 
@@ -517,8 +561,9 @@ dynamic-qr-attendance/
 │   └── dynamic-qr-attendance.json
 │
 ├── frontend/
-│   ├── professor-dashboard.html
-│   └── student-attendance.html
+│   ├── professor-dashboard.html      # built dashboard bundle
+│   ├── student-attendance.html
+│   └── location-core.js              # shared geolocation acquisition + checks
 │
 └── docs/
     │
@@ -582,6 +627,10 @@ professor-dashboard.html?key=YOUR_PROF_KEY
 ```
 
 > Use production webhook URLs when testing the complete flow. Workflow state needs to persist in the active workflow, which test URLs do not provide.
+
+> The student page imports `frontend/location-core.js`, so publish both files in
+> the same directory. Opening `student-attendance.html` straight from the
+> filesystem will not work because module imports require an HTTP(S) origin.
 
 ### 4. Prepare Google Sheets
 
@@ -663,6 +712,8 @@ The current prototype also has several intentional limitations:
 - n8n workflow static data for session state
 - No strong physical-presence verification
 - Browser geolocation can be spoofed and does not prove presence
+- `enableHighAccuracy` only requests the platform's best fix; reported accuracy
+  remains an estimate and cannot be guaranteed, especially indoors
 - The default `REVIEW` policy records outside-radius attempts but does not yet
   provide a secure instructor approval endpoint
 - n8n workflow static data is not transaction-safe under multi-instance
