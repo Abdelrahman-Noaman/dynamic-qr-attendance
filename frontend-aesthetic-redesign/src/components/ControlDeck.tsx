@@ -23,14 +23,8 @@ interface Props {
   lectureLocationNotice: string | null;
   attendanceRadiusMeters: number;
   maxAccuracyMeters: number;
-<<<<<<< HEAD
   onConfirmLectureLocation: (location: LectureLocation) => void;
   onClearLectureLocation: () => void;
-=======
-  reportedAccuracyMeters: number | null;
-  locationQualityStatus: "VERIFIED" | "REJECTED";
-  onShareLocation: () => void;
->>>>>>> c04910a (Save local updates before syncing)
 }
 
 const TONE: Record<Tone, string> = {
@@ -110,14 +104,8 @@ export function ControlDeck({
   lectureLocationNotice,
   attendanceRadiusMeters,
   maxAccuracyMeters,
-<<<<<<< HEAD
   onConfirmLectureLocation,
   onClearLectureLocation,
-=======
-  reportedAccuracyMeters,
-  locationQualityStatus,
-  onShareLocation,
->>>>>>> c04910a (Save local updates before syncing)
 }: Props) {
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -194,25 +182,10 @@ export function ControlDeck({
                 : "Confirm the lecture location on the map to unlock Start."}
             </span>
           </div>
-<<<<<<< HEAD
 
           {lectureLocationNotice && (
             <p className="mt-2 font-mono text-[11px] leading-relaxed text-cream/60">{lectureLocationNotice}</p>
           )}
-=======
-          <p className="mt-3 text-xs leading-relaxed text-cream/55">
-            Attendance uses a one-time browser reading. GPS accuracy is an estimate, especially indoors.
-            Reported accuracy:{" "}
-            {reportedAccuracyMeters === null
-              ? "not available"
-              : `±${Math.round(reportedAccuracyMeters)} m`}
-            . Readings above {maxAccuracyMeters} m are{" "}
-            "rejected".
-            Configured attendance radius: {attendanceRadiusMeters} m. Move
-            outdoors, enable device location services, and retry for a clearer
-            reading.
-          </p>
->>>>>>> c04910a (Save local updates before syncing)
         </div>
 
         {/* Start */}

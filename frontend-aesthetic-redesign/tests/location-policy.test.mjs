@@ -6,7 +6,6 @@
 // lecture-location.test.mjs.
 import assert from "node:assert/strict";
 import fs from "node:fs";
-<<<<<<< HEAD
 
 import {
   assessStudentAttendance,
@@ -95,25 +94,6 @@ assert.doesNotMatch(validateSubmission.parameters.jsCode, /NEEDS_REVIEW|Needs Re
 assert.match(rotateQr.parameters.jsCode, /s\.token = rand\(6\)/);
 assert.ok(workflow.connections["Webhook Start"].main[0].some((edge) => edge.node === "Create Session"));
 assert.ok(workflow.connections["Create Session"].main[0].some((edge) => edge.node === "Respond Start"));
-=======
-import test from "node:test";
-
-const workflow = JSON.parse(
-  fs.readFileSync(new URL("../../n8n/dynamic-qr-attendance.json", import.meta.url))
-);
-const validateCode = workflow.nodes.find((node) => node.name === "Validate Submission")
-  .parameters.jsCode;
-
-const distance = (a, b) => {
-  const radians = (value) => value * Math.PI / 180;
-  const dLat = radians(b.latitude - a.latitude);
-  const dLon = radians(b.longitude - a.longitude);
-  const h = Math.sin(dLat / 2) ** 2 +
-    Math.cos(radians(a.latitude)) * Math.cos(radians(b.latitude)) *
-    Math.sin(dLon / 2) ** 2;
-  return 2 * 6371000 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-};
->>>>>>> c04910a (Save local updates before syncing)
 
 const assess = ({ instructor, student, radius = 100, maxAccuracy = 50, maxAge = 30, now = 1_000_000 }) => {
   if (!instructor || !student) return { locationStatus: "REJECTED", reason: "LOCATION_UNAVAILABLE" };
