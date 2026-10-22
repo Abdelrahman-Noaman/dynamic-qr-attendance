@@ -1,0 +1,6 @@
+{
+  "name": "dqr-frontend-pages",
+  "private": true,
+  "type": "module",
+  "description": "Static attendance pages. `type: module` lets Node tests import frontend/location-core.js directly; the pages themselves are served as-is."
+}

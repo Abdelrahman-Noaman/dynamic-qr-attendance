@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { N8N, STUDENT_URL } from "../config";
+import {
+  isReadingFresh,
+  LOCATION_QUALITY,
+  progressText,
+  requestInstructorLocation,
+  toLocationFailure,
+  type LocationProgress,
+  type LocationReading,
+} from "../utils/location";
 
-export const MAX_GPS_ACCURACY_METERS = 50;
+export const MAX_GPS_ACCURACY_METERS = LOCATION_QUALITY.targetAccuracyMeters;
 export let LOCATION_QUALITY_POLICY: "REVIEW" | "REJECT" = "REVIEW";
 export type LocationQualityStatus = "VERIFIED" | "NEEDS_REVIEW" | "REJECTED";
 
@@ -99,12 +108,7 @@ export function useAttendance(key: string | null) {
   const [running, setRunningState] = useState(false);
   const [qr, setQr] = useState<QrPayload | null>(null);
   const [tokensServed, setTokensServed] = useState(0);
-  const [instructorLocation, setInstructorLocation] = useState<{
-    latitude: number;
-    longitude: number;
-    accuracy: number;
-    timestamp: number;
-  } | null>(null);
+  const [instructorLocation, setInstructorLocation] = useState<LocationReading | null>(null);
   const [locationStatus, setLocationStatus] = useState("Location is required before starting.");
   const [locationQualityStatus, setLocationQualityStatus] =
     useState<LocationQualityStatus>("REJECTED");
@@ -263,92 +267,93 @@ export function useAttendance(key: string | null) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  // ---- Start ----
-  const shareLocation = useCallback(() => {
-    if (!navigator.geolocation) {
-      setInstructorLocation(null);
-      setLocationQualityStatus("REJECTED");
-      setLocationStatus("Location services are unavailable in this browser.");
-      return;
-    }
+  // ---- Location (instructor) ----
+  // Same shared acquisition module as the student page: high accuracy, no
+  // cached fixes, up to three readings inside a bounded window, best fresh
+  // reading wins. A reading older than the freshness limit is re-acquired
+  // instead of being reused.
+  type InstructorLocationResult =
+    | { ok: true; reading: LocationReading; precisionMet: boolean; attempts: number }
+    | { ok: false; reason: string; message: string };
+
+  const acquireInstructorLocation = useCallback(async (): Promise<InstructorLocationResult> => {
     setLocationBusy(true);
-    setLocationStatus("Requesting your location…");
-    navigator.geolocation.getCurrentPosition(
-      ({ coords, timestamp }) => {
-        const values = [coords.latitude, coords.longitude, coords.accuracy];
-        if (
-          values.some((value) => !Number.isFinite(value)) ||
-          coords.latitude < -90 ||
-          coords.latitude > 90 ||
-          coords.longitude < -180 ||
-          coords.longitude > 180 ||
-          coords.accuracy <= 0
-        ) {
-          setInstructorLocation(null);
-          setLocationQualityStatus("REJECTED");
-          setLocationStatus("The browser returned invalid location data. Please retry.");
-          setLocationBusy(false);
-          return;
-        }
-        if (coords.accuracy > MAX_GPS_ACCURACY_METERS) {
-          setInstructorLocation({
-            latitude: coords.latitude,
-            longitude: coords.longitude,
-            accuracy: coords.accuracy,
-            timestamp: timestamp || Date.now(),
-          });
-          setLocationQualityStatus("NEEDS_REVIEW");
-          setLocationStatus(
-            `NEEDS_REVIEW · ±${Math.round(coords.accuracy)} m reported; above the ${MAX_GPS_ACCURACY_METERS} m quality target. You may start, but attendance cannot be verified from this reading.`
-          );
-          setLocationBusy(false);
-          return;
-        }
-        setInstructorLocation({
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-          accuracy: coords.accuracy,
-          timestamp: timestamp || Date.now(),
-        });
+    setLocationStatus("Requesting a fresh high-accuracy reading…");
+
+    try {
+      const acquired = await requestInstructorLocation((progress: LocationProgress) => {
+        setLocationStatus(progressText(progress));
+      });
+      const reading = acquired.reading;
+      const accuracy = Math.round(reading.accuracy);
+      const target = LOCATION_QUALITY.targetAccuracyMeters;
+      const readings = `${acquired.attempts} reading${acquired.attempts === 1 ? "" : "s"}`;
+
+      setInstructorLocation(reading);
+      if (acquired.precisionMet) {
         setLocationQualityStatus("VERIFIED");
         setLocationStatus(
-          `Location ready · accuracy ±${Math.round(coords.accuracy)} m (quality limit ≤${MAX_GPS_ACCURACY_METERS} m)`
+          `Location ready · reported accuracy ±${accuracy} m (quality target ≤${target} m, ${readings}). ` +
+            "Accuracy is a device estimate, not a guarantee."
         );
-        setLocationBusy(false);
-      },
-      (error) => {
-        setInstructorLocation(null);
-        setLocationQualityStatus("REJECTED");
-        const message =
-          error.code === error.PERMISSION_DENIED
-            ? "Location permission was denied. Allow it in the browser and retry."
-            : error.code === error.POSITION_UNAVAILABLE
-              ? "Location services are unavailable. Check device settings and retry."
-              : error.code === error.TIMEOUT
-                ? "Location request timed out. Please retry."
-                : "Unable to retrieve your location. Please retry.";
-        setLocationStatus(message);
-        setLocationBusy(false);
-      },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
-    );
+      } else {
+        setLocationQualityStatus("NEEDS_REVIEW");
+        setLocationStatus(
+          `NEEDS_REVIEW · best reported accuracy ±${accuracy} m is above the ${target} m target after ${readings}. ` +
+            "You may start, but students cannot be distance-verified against this reference " +
+            "(their attempts are rejected as INSTRUCTOR_LOW_ACCURACY). Refresh the location or move outdoors."
+        );
+      }
+
+      return { ok: true, reading, precisionMet: acquired.precisionMet, attempts: acquired.attempts };
+    } catch (error) {
+      const failure = toLocationFailure(error);
+      setInstructorLocation(null);
+      setLocationQualityStatus("REJECTED");
+      setLocationStatus(`${failure.message} [reason: ${failure.reason}]`);
+      return { ok: false, reason: failure.reason, message: failure.message };
+    } finally {
+      setLocationBusy(false);
+    }
   }, []);
+
+  const shareLocation = useCallback(() => {
+    void acquireInstructorLocation();
+  }, [acquireInstructorLocation]);
 
   const startSession = useCallback(async () => {
     if (!key) return;
-    if (!instructorLocation) {
+
+    // Never send an old reading as if it were current: a missing or stale
+    // reading is replaced by a fresh acquisition before the start request.
+    let reading = instructorLocation;
+    let precisionMet = locationQualityStatus === "VERIFIED";
+
+    if (!reading || !isReadingFresh(reading)) {
       setStatus(
-        "A valid location reading is required before starting.",
-        "error"
+        reading
+          ? "Your saved location reading is stale — requesting a fresh one…"
+          : "A valid location reading is required before starting — requesting one…",
+        "running"
       );
-      return;
+      setInstructorLocation(null);
+      setLocationQualityStatus("REJECTED");
+      const acquired = await acquireInstructorLocation();
+      if (!acquired.ok) {
+        setStatus(
+          `Session start needs a fresh location reading. ${acquired.message} [reason: ${acquired.reason}]`,
+          "error"
+        );
+        setStartDisabled(false);
+        return;
+      }
+      reading = acquired.reading;
+      precisionMet = acquired.precisionMet;
     }
-    if (
-      locationQualityStatus === "NEEDS_REVIEW" &&
-      LOCATION_QUALITY_POLICY === "REJECT"
-    ) {
+
+    if (!precisionMet && LOCATION_QUALITY_POLICY === "REJECT") {
       setStatus(
-        `A location reading with accuracy ≤${MAX_GPS_ACCURACY_METERS} m is required before starting.`,
+        `A location reading with accuracy ≤${LOCATION_QUALITY.targetAccuracyMeters} m is required before starting.`,
         "error"
       );
       return;
@@ -361,10 +366,10 @@ export function useAttendance(key: string | null) {
       const data = await apiPost("dqr-start", {
         key,
         lecture: lecture.trim() || "Lecture",
-        instructorLatitude: String(instructorLocation.latitude),
-        instructorLongitude: String(instructorLocation.longitude),
-        instructorAccuracy: String(instructorLocation.accuracy),
-        instructorLocationTimestamp: String(instructorLocation.timestamp),
+        instructorLatitude: String(reading.latitude),
+        instructorLongitude: String(reading.longitude),
+        instructorAccuracy: String(reading.accuracy),
+        instructorLocationTimestamp: String(reading.timestamp),
         locationQualityPolicy: LOCATION_QUALITY_POLICY,
       });
 
@@ -421,6 +426,7 @@ export function useAttendance(key: string | null) {
     lecture,
     instructorLocation,
     locationQualityStatus,
+    acquireInstructorLocation,
     fetchQR,
     setRunning,
     setStatus,

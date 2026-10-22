@@ -202,7 +202,7 @@
     <h1>📋 Record Attendance</h1>
     <div class="lecture-name" id="lectureName"></div>
 
-    <form id="attendanceForm" onsubmit="return submitForm(event)">
+    <form id="attendanceForm">
       <label for="name">Full Name</label>
       <input type="text" id="name" required autocomplete="name" placeholder="Jane Doe">
 
@@ -216,8 +216,9 @@
     </form>
 
     <div class="location-note" id="locationNote">
-      Your one-time location is requested only when you submit. It is used to verify this attendance session;
-      GPS accuracy is an estimate and may be reduced indoors.
+      A fresh location reading is requested only when you submit. Up to three readings are collected for a
+      bounded window and the most accurate fresh one is used. Accuracy is a device estimate and cannot be
+      guaranteed, especially indoors; it is separate from the attendance radius.
     </div>
     <div class="msg msg-error" id="formError" style="display:none;"></div>
   </div>
@@ -230,7 +231,17 @@
   </div>
 </div>
 
-<script>
+<script type="module">
+// Shared with the instructor dashboard: same acquisition config and same
+// validation rules for both roles.
+import {
+  acquireLocation,
+  formatAccuracy,
+  LocationError,
+  LOCATION_QUALITY,
+  LOCATION_REASONS,
+} from "./location-core.js";
+
 // ============================================================
 // ★ CONFIGURE THIS CONSTANT ★
 // ============================================================
@@ -238,6 +249,7 @@ const N8N = "https://no3man.app.n8n.cloud/webhook";   // your n8n webhook base U
 // ============================================================
 
 let ticket = null;
+let submitting = false;
 
 // A browser-generated ID persists across attendance sessions on this device.
 // It is not a hardware identifier and can be reset by clearing browser storage.
@@ -276,8 +288,9 @@ const MESSAGES = {
   LOCATION_UNAVAILABLE: "Your location could not be retrieved. Check location services and retry.",
   LOCATION_TIMEOUT: "Location request timed out. Please retry.",
   INVALID_LOCATION: "The browser returned invalid location data. Please retry.",
-  LOW_ACCURACY: "Your location is too inaccurate. Move outdoors or closer to the venue and retry.",
-  STALE_LOCATION: "Your location reading is too old. Please retry.",
+  LOW_ACCURACY: `Your location is still too inaccurate after several readings. The quality target is ${LOCATION_QUALITY.targetAccuracyMeters} m; move outdoors or closer to a window and retry.`,
+  STALE_LOCATION: "The browser returned an old location reading. Please retry for a fresh one.",
+  INSTRUCTOR_LOW_ACCURACY: "This session's instructor reference reading is too imprecise to verify distances. Ask your instructor to refresh their location.",
   OUTSIDE_RADIUS: "Your location is outside the attendance area. This attempt was not verified.",
   NEEDS_REVIEW: "Your attendance was recorded for instructor review; it is not verified yet.",
 };
@@ -333,15 +346,80 @@ function showView(id) {
   }
 })();
 
+// ---- Form / location-note helpers ----
+const locationNote = () => document.getElementById("locationNote");
+const formError = () => document.getElementById("formError");
+const submitButton = () => document.getElementById("btnSubmit");
+
+function showFormError(text) {
+  const el = formError();
+  el.textContent = text;
+  el.style.display = "block";
+}
+
+function hideFormError() {
+  formError().style.display = "none";
+}
+
+function resetSubmitButton() {
+  submitting = false;
+  const btn = submitButton();
+  btn.disabled = false;
+  btn.textContent = "Submit Attendance";
+}
+
+// Keep the machine-readable reason visible: it is what distinguishes "too
+// imprecise" from "outside the radius", "stale", or "permission denied".
+function describeLocationFailure(error) {
+  const reason = error instanceof LocationError ? error.reason : LOCATION_REASONS.UNAVAILABLE;
+  const message =
+    error instanceof LocationError && error.message ? error.message : friendlyError(reason);
+  return `${message} [reason: ${reason}]`;
+}
+
+// ---- Location acquisition ----
+// Shared module + shared config, so a student and the instructor are judged by
+// the same rules. Student policy: never submit a best reading that is above the
+// quality target — ask for another reading instead, then fail explicitly.
+async function getCurrentLocation() {
+  const note = locationNote();
+
+  const describeProgress = ({ phase, attempt, maxAttempts, accuracyMeters, bestAccuracyMeters }) => {
+    if (phase === "requesting") {
+      note.textContent =
+        attempt === 1
+          ? "Requesting a fresh high-accuracy reading (cached positions are refused)…"
+          : `Reading ${attempt} of ${maxAttempts} — best so far ${formatAccuracy(bestAccuracyMeters)}…`;
+    } else if (phase === "reading") {
+      note.textContent = `Reading ${attempt} of ${maxAttempts} — reported accuracy ${formatAccuracy(accuracyMeters)}.`;
+    } else if (phase === "retrying") {
+      note.textContent = `Reported accuracy ${formatAccuracy(accuracyMeters)} is worse than the ${LOCATION_QUALITY.targetAccuracyMeters} m quality target — requesting another fresh reading…`;
+    } else if (phase === "invalid") {
+      note.textContent = "That reading was unusable (invalid or stale data) — requesting another one…";
+    } else if (phase === "rejected") {
+      note.textContent = "The browser could not return a reading — retrying while the time window allows…";
+    }
+  };
+
+  const acquired = await acquireLocation(navigator.geolocation, {
+    allowPoorAccuracy: false,
+    onProgress: describeProgress,
+  });
+
+  note.textContent =
+    `Location captured · reported accuracy ${formatAccuracy(acquired.reading.accuracy)} ` +
+    `(quality target ≤ ${LOCATION_QUALITY.targetAccuracyMeters} m). Accuracy is a device estimate, not a guarantee. ` +
+    `Attendance radius is a separate ${LOCATION_QUALITY.attendanceRadiusMeters} m server-side check.`;
+  return acquired.reading;
+}
+
 // ---- Submit ----
 async function submitForm(e) {
   e.preventDefault();
+  if (submitting) return false;
 
-  const btn = document.getElementById("btnSubmit");
-  const errEl = document.getElementById("formError");
-  errEl.style.display = "none";
-  btn.disabled = true;
-  btn.textContent = "Submitting…";
+  const btn = submitButton();
+  hideFormError();
 
   const name      = document.getElementById("name").value.trim();
   const studentId = document.getElementById("studentId").value.trim();
@@ -349,31 +427,32 @@ async function submitForm(e) {
   const deviceId  = getDeviceId();
 
   if (!name || !studentId || !email) {
-    errEl.textContent = friendlyError("MISSING_FIELDS");
-    errEl.style.display = "block";
-    btn.disabled = false;
-    btn.textContent = "Submit Attendance";
+    showFormError(friendlyError("MISSING_FIELDS"));
     return false;
   }
 
   if (!deviceId) {
-    errEl.textContent = friendlyError("DEVICE_ID_REQUIRED");
-    errEl.style.display = "block";
-    btn.disabled = false;
-    btn.textContent = "Submit Attendance";
+    showFormError(friendlyError("DEVICE_ID_REQUIRED"));
     return false;
   }
+
+  submitting = true;
+  btn.disabled = true;
+  btn.textContent = "Locating…";
 
   let location;
   try {
     location = await getCurrentLocation();
   } catch (error) {
-    errEl.textContent = friendlyError(error.message);
-    errEl.style.display = "block";
-    btn.disabled = false;
-    btn.textContent = "Submit Attendance";
+    locationNote().textContent =
+      "No acceptable location reading was obtained within the retry window. " +
+      "Attendance was not submitted and nothing was recorded.";
+    showFormError(describeLocationFailure(error));
+    resetSubmitButton();
     return false;
   }
+
+  btn.textContent = "Submitting…";
 
   try {
     const res = await fetch(`${N8N}/dqr-submit`, {
@@ -399,10 +478,10 @@ async function submitForm(e) {
     }
 
     if (!data.ok) {
-      errEl.textContent = friendlyError(data.reason || `SERVER_ERROR_${res.status}`);
-      errEl.style.display = "block";
-      btn.disabled = false;
-      btn.textContent = "Submit Attendance";
+      const reason = data.reason || `SERVER_ERROR_${res.status}`;
+      const detail = typeof data.locationDetail === "string" && data.locationDetail ? ` ${data.locationDetail}` : "";
+      showFormError(`${friendlyError(reason)}${detail} [reason: ${reason}]`);
+      resetSubmitButton();
 
       // If ticket expired, they need to re-scan
       if (data.reason === "TICKET_EXPIRED" || data.reason === "BAD_TICKET") {
@@ -411,62 +490,41 @@ async function submitForm(e) {
       return false;
     }
 
-    if (data.locationStatus === "NEEDS_REVIEW") {
+    const reviewed =
+      data.reviewStatus === "Needs Review" ||
+      data.locationStatus === "OUTSIDE_RADIUS" ||
+      data.locationStatus === "NEEDS_REVIEW";
+
+    // Reported accuracy is always shown, in meters, with the reminder that it
+    // is an estimate rather than a guarantee.
+    const accuracyText = `Reported accuracy ${formatAccuracy(location.accuracy)} — a device estimate, not a guarantee.`;
+
+    if (reviewed) {
+      const distanceMeters = Number(data.distanceMeters);
+      const radiusMeters = Number(data.attendanceRadiusMeters);
+      const detail = Number.isFinite(distanceMeters)
+        ? `<br>Recorded distance: ${distanceMeters.toFixed(1)} m` +
+          (Number.isFinite(radiusMeters) ? ` (radius ${radiusMeters} m).` : ".")
+        : "";
       document.querySelector("#viewSuccess h1").textContent = "Attendance Needs Review";
       document.querySelector("#viewSuccess p").innerHTML =
-        "Your attempt was recorded for instructor review.<br>It is not location-verified yet.";
+        `Your attempt was recorded for instructor review.${detail}<br>It is not location-verified yet.<br>${accuracyText}`;
+    } else {
+      document.querySelector("#viewSuccess p").innerHTML =
+        `A confirmation email is on the way.<br>You can close this page.<br>${accuracyText}`;
     }
     showView("viewSuccess");
 
   } catch (e) {
-    errEl.textContent = "Network error — please try again.";
-    errEl.style.display = "block";
-    btn.disabled = false;
-    btn.textContent = "Submit Attendance";
+    showFormError("Network error — please try again.");
+    resetSubmitButton();
   }
 
   return false;
 }
 
-function getCurrentLocation() {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error("LOCATION_UNAVAILABLE"));
-      return;
-    }
-    document.getElementById("locationNote").textContent = "Requesting your location…";
-    navigator.geolocation.getCurrentPosition(
-      ({ coords, timestamp }) => {
-        const values = [coords.latitude, coords.longitude, coords.accuracy];
-        if (
-          values.some(value => !Number.isFinite(value)) ||
-          coords.latitude < -90 ||
-          coords.latitude > 90 ||
-          coords.longitude < -180 ||
-          coords.longitude > 180 ||
-          coords.accuracy <= 0
-        ) {
-          reject(new Error("INVALID_LOCATION"));
-          return;
-        }
-        resolve({
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-          accuracy: coords.accuracy,
-          timestamp: timestamp || Date.now(),
-        });
-      },
-      error => reject(new Error(
-        error.code === error.PERMISSION_DENIED
-          ? "LOCATION_PERMISSION_DENIED"
-          : error.code === error.TIMEOUT
-            ? "LOCATION_TIMEOUT"
-            : "LOCATION_UNAVAILABLE"
-      )),
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
-    );
-  });
-}
+document.getElementById("attendanceForm").addEventListener("submit", submitForm);
+
 </script>
 </body>
 </html>
