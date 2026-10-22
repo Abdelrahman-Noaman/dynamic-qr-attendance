@@ -133,6 +133,21 @@
     color: var(--success);
   }
 
+  .status-tag {
+    display: inline-block;
+    margin-bottom: 0.5rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+
+  .status-tag-ok {
+    background: rgba(0,184,148,0.18);
+    color: var(--success);
+  }
+
   .success-screen {
     text-align: center;
   }
@@ -216,9 +231,10 @@
     </form>
 
     <div class="location-note" id="locationNote">
-      A fresh location reading is requested only when you submit. Up to three readings are collected for a
-      bounded window and the most accurate fresh one is used. Accuracy is a device estimate and cannot be
-      guaranteed, especially indoors; it is separate from the attendance radius.
+      A fresh high-accuracy location reading is requested when you submit. Up to three readings are collected
+      within a bounded window and the most accurate fresh one is used. Your reading must report an accuracy of
+      ≤ 50 m and put you within 100 m of the lecture hall the instructor confirmed on the map. Accuracy is a
+      device estimate and cannot be guaranteed, especially indoors.
     </div>
     <div class="msg msg-error" id="formError" style="display:none;"></div>
   </div>
@@ -288,11 +304,12 @@ const MESSAGES = {
   LOCATION_UNAVAILABLE: "Your location could not be retrieved. Check location services and retry.",
   LOCATION_TIMEOUT: "Location request timed out. Please retry.",
   INVALID_LOCATION: "The browser returned invalid location data. Please retry.",
-  LOW_ACCURACY: `Your location is still too inaccurate after several readings. The quality target is ${LOCATION_QUALITY.targetAccuracyMeters} m; move outdoors or closer to a window and retry.`,
+  LOW_ACCURACY: `Your location reading is too imprecise. The limit is ${LOCATION_QUALITY.targetAccuracyMeters} m; move outdoors or closer to a window and retry.`,
   STALE_LOCATION: "The browser returned an old location reading. Please retry for a fresh one.",
-  INSTRUCTOR_LOW_ACCURACY: "This session's instructor reference reading is too imprecise to verify distances. Ask your instructor to refresh their location.",
-  OUTSIDE_RADIUS: "Your location is outside the attendance area. This attempt was not verified.",
-  NEEDS_REVIEW: "Your attendance was recorded for instructor review; it is not verified yet.",
+  OUTSIDE_RADIUS: `You are outside the ${LOCATION_QUALITY.attendanceRadiusMeters} m attendance area around the lecture hall. This attempt was rejected.`,
+  LECTURE_LOCATION_INVALID: "This session has no valid lecture-hall location. Ask your instructor to confirm the lecture location again.",
+  LECTURE_LOCATION_STALE: "This session's lecture-hall location is out of date. Ask your instructor to confirm it again.",
+  LECTURE_LOCATION_MISSING: "This session has no lecture-hall location set. Ask your instructor to confirm it before you scan again.",
 };
 
 function friendlyError(reason) {
@@ -374,7 +391,7 @@ function describeLocationFailure(error) {
   const reason = error instanceof LocationError ? error.reason : LOCATION_REASONS.UNAVAILABLE;
   const message =
     error instanceof LocationError && error.message ? error.message : friendlyError(reason);
-  return `${message} [reason: ${reason}]`;
+  return `REJECTED / ${reason} — ${message}`;
 }
 
 // ---- Location acquisition ----
@@ -480,7 +497,21 @@ async function submitForm(e) {
     if (!data.ok) {
       const reason = data.reason || `SERVER_ERROR_${res.status}`;
       const detail = typeof data.locationDetail === "string" && data.locationDetail ? ` ${data.locationDetail}` : "";
-      showFormError(`${friendlyError(reason)}${detail} [reason: ${reason}]`);
+      const distanceMeters = Number(data.distanceMeters);
+      const radiusMeters = Number(data.attendanceRadiusMeters);
+      const measured = Number.isFinite(distanceMeters)
+        ? `Distance from lecture hall: ${distanceMeters.toFixed(1)} m` +
+          (Number.isFinite(radiusMeters) ? ` (limit ${radiusMeters} m).` : ".")
+        : "";
+      const accuracyMeters = Number(data.accuracyMeters ?? location?.accuracy);
+      const measuredAccuracy = Number.isFinite(accuracyMeters) && accuracyMeters > 0
+        ? `Reported GPS accuracy: ${formatAccuracy(accuracyMeters)}.`
+        : "";
+      // Always state the machine-readable outcome, e.g. "REJECTED / OUTSIDE_RADIUS".
+      const headline = `REJECTED / ${reason}`;
+      showFormError(
+        [headline, friendlyError(reason), detail, measured, measuredAccuracy].filter(Boolean).join(" ")
+      );
       resetSubmitButton();
 
       // If ticket expired, they need to re-scan
@@ -490,29 +521,22 @@ async function submitForm(e) {
       return false;
     }
 
-    const reviewed =
-      data.reviewStatus === "Needs Review" ||
-      data.locationStatus === "OUTSIDE_RADIUS" ||
-      data.locationStatus === "NEEDS_REVIEW";
+    // Only verified attendance reaches this point: the workflow rejects
+    // outside-radius and unreliable readings with an explicit reason instead
+    // of recording a review state.
+    const distanceMeters = Number(data.distanceMeters);
+    const radiusMeters = Number(data.attendanceRadiusMeters);
+    const distanceText = Number.isFinite(distanceMeters)
+      ? `Distance from the lecture hall: <strong>${distanceMeters.toFixed(1)} m</strong>` +
+        (Number.isFinite(radiusMeters) ? ` (limit ${radiusMeters} m).` : ".")
+      : "";
+    const accuracyText = `Reported GPS accuracy: <strong>${formatAccuracy(location.accuracy)}</strong> — a device estimate, not a guarantee.`;
 
-    // Reported accuracy is always shown, in meters, with the reminder that it
-    // is an estimate rather than a guarantee.
-    const accuracyText = `Reported accuracy ${formatAccuracy(location.accuracy)} — a device estimate, not a guarantee.`;
-
-    if (reviewed) {
-      const distanceMeters = Number(data.distanceMeters);
-      const radiusMeters = Number(data.attendanceRadiusMeters);
-      const detail = Number.isFinite(distanceMeters)
-        ? `<br>Recorded distance: ${distanceMeters.toFixed(1)} m` +
-          (Number.isFinite(radiusMeters) ? ` (radius ${radiusMeters} m).` : ".")
-        : "";
-      document.querySelector("#viewSuccess h1").textContent = "Attendance Needs Review";
-      document.querySelector("#viewSuccess p").innerHTML =
-        `Your attempt was recorded for instructor review.${detail}<br>It is not location-verified yet.<br>${accuracyText}`;
-    } else {
-      document.querySelector("#viewSuccess p").innerHTML =
-        `A confirmation email is on the way.<br>You can close this page.<br>${accuracyText}`;
-    }
+    document.querySelector("#viewSuccess h1").textContent = "Attendance Accepted";
+    document.querySelector("#viewSuccess p").innerHTML =
+      `<span class="status-tag status-tag-ok">ACCEPTED / VERIFIED</span><br>` +
+      [distanceText, accuracyText].filter(Boolean).join("<br>") +
+      `<br>A confirmation email is on the way. You can close this page.`;
     showView("viewSuccess");
 
   } catch (e) {

@@ -1,18 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { N8N, STUDENT_URL } from "../config";
 import {
-  isReadingFresh,
   LOCATION_QUALITY,
-  progressText,
-  requestInstructorLocation,
-  toLocationFailure,
-  type LocationProgress,
-  type LocationReading,
-} from "../utils/location";
+  createLectureLocation,
+  formatCoordinates,
+  isLectureLocationFresh,
+  loadLectureLocation,
+  saveLectureLocation,
+  type LectureLocation,
+} from "../utils/lectureLocation";
 
+/** Student-side accuracy ceiling and attendance radius (server-owned values). */
 export const MAX_GPS_ACCURACY_METERS = LOCATION_QUALITY.targetAccuracyMeters;
-export let LOCATION_QUALITY_POLICY: "REVIEW" | "REJECT" = "REVIEW";
-export type LocationQualityStatus = "VERIFIED" | "NEEDS_REVIEW" | "REJECTED";
+export const ATTENDANCE_RADIUS_METERS = LOCATION_QUALITY.attendanceRadiusMeters;
+
+/**
+ * How the session's reference point was established. The dashboard only ever
+ * sends `map` (a professor-confirmed lecture hall), never device GPS.
+ */
+export type LectureLocationSource = "map";
+export type LectureLocationStatus = "CONFIRMED" | "UNCONFIRMED";
 
 export type Tone = "idle" | "running" | "stopped" | "error";
 
@@ -32,8 +39,10 @@ export interface QrPayload {
   locationStats: {
     verified: number;
     outsideRadius: number;
-    needsReview: number;
+    rejected: number;
   };
+  /** The reference point stored in the workflow for the live session. */
+  lectureLocation?: { latitude: number; longitude: number; source?: string; confirmedAt?: number } | null;
 }
 
 interface ApiResponse {
@@ -46,7 +55,7 @@ interface ApiResponse {
   expiresInMs?: number;
   attendanceRadiusMeters?: number;
   locationStats?: QrPayload["locationStats"];
-  locationQualityStatus?: LocationQualityStatus;
+  lectureLocation?: QrPayload["lectureLocation"];
 }
 
 class ApiRequestError extends Error {
@@ -108,15 +117,14 @@ export function useAttendance(key: string | null) {
   const [running, setRunningState] = useState(false);
   const [qr, setQr] = useState<QrPayload | null>(null);
   const [tokensServed, setTokensServed] = useState(0);
-  const [instructorLocation, setInstructorLocation] = useState<LocationReading | null>(null);
-  const [locationStatus, setLocationStatus] = useState("Location is required before starting.");
-  const [locationQualityStatus, setLocationQualityStatus] =
-    useState<LocationQualityStatus>("REJECTED");
-  const [locationBusy, setLocationBusy] = useState(false);
+  // The confirmed lecture hall. Restored from storage so a refresh does not
+  // silently drop the professor's selection; never a hardcoded default.
+  const [lectureLocation, setLectureLocation] = useState<LectureLocation | null>(() => loadLectureLocation());
+  const [lectureLocationNotice, setLectureLocationNotice] = useState<string | null>(null);
   const [locationStats, setLocationStats] = useState<QrPayload["locationStats"]>({
     verified: 0,
     outsideRadius: 0,
-    needsReview: 0,
+    rejected: 0,
   });
   const [attendanceRadiusMeters, setAttendanceRadiusMeters] = useState(100);
 
@@ -175,9 +183,19 @@ export function useAttendance(key: string | null) {
       setLectureDisabled(true);
       setLecture(data.lecture || "Lecture");
       setLocationStats(data.locationStats || locationStats);
-      setAttendanceRadiusMeters(data.attendanceRadiusMeters || 100);
-      if (data.locationQualityStatus) {
-        setLocationQualityStatus(data.locationQualityStatus);
+      setAttendanceRadiusMeters(data.attendanceRadiusMeters || ATTENDANCE_RADIUS_METERS);
+      // Keep the map in sync with the reference the server is actually using
+      // (e.g. after a page reload mid-session).
+      const serverReference = data.lectureLocation;
+      if (serverReference && Number.isFinite(serverReference.latitude) && Number.isFinite(serverReference.longitude)) {
+        setLectureLocation((current) =>
+          current && current.latitude === serverReference.latitude && current.longitude === serverReference.longitude
+            ? current
+            : createLectureLocation(
+                { latitude: Number(serverReference.latitude), longitude: Number(serverReference.longitude) },
+                { confirmedAt: Number(serverReference.confirmedAt) || Date.now() },
+              ),
+        );
       }
 
       showQR(data);
@@ -267,97 +285,46 @@ export function useAttendance(key: string | null) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  // ---- Location (instructor) ----
-  // Same shared acquisition module as the student page: high accuracy, no
-  // cached fixes, up to three readings inside a bounded window, best fresh
-  // reading wins. A reading older than the freshness limit is re-acquired
-  // instead of being reused.
-  type InstructorLocationResult =
-    | { ok: true; reading: LocationReading; precisionMet: boolean; attempts: number }
-    | { ok: false; reason: string; message: string };
-
-  const acquireInstructorLocation = useCallback(async (): Promise<InstructorLocationResult> => {
-    setLocationBusy(true);
-    setLocationStatus("Requesting a fresh high-accuracy reading…");
-
-    try {
-      const acquired = await requestInstructorLocation((progress: LocationProgress) => {
-        setLocationStatus(progressText(progress));
-      });
-      const reading = acquired.reading;
-      const accuracy = Math.round(reading.accuracy);
-      const target = LOCATION_QUALITY.targetAccuracyMeters;
-      const readings = `${acquired.attempts} reading${acquired.attempts === 1 ? "" : "s"}`;
-
-      setInstructorLocation(reading);
-      if (acquired.precisionMet) {
-        setLocationQualityStatus("VERIFIED");
-        setLocationStatus(
-          `Location ready · reported accuracy ±${accuracy} m (quality target ≤${target} m, ${readings}). ` +
-            "Accuracy is a device estimate, not a guarantee."
-        );
-      } else {
-        setLocationQualityStatus("NEEDS_REVIEW");
-        setLocationStatus(
-          `NEEDS_REVIEW · best reported accuracy ±${accuracy} m is above the ${target} m target after ${readings}. ` +
-            "You may start, but students cannot be distance-verified against this reference " +
-            "(their attempts are rejected as INSTRUCTOR_LOW_ACCURACY). Refresh the location or move outdoors."
-        );
-      }
-
-      return { ok: true, reading, precisionMet: acquired.precisionMet, attempts: acquired.attempts };
-    } catch (error) {
-      const failure = toLocationFailure(error);
-      setInstructorLocation(null);
-      setLocationQualityStatus("REJECTED");
-      setLocationStatus(`${failure.message} [reason: ${failure.reason}]`);
-      return { ok: false, reason: failure.reason, message: failure.message };
-    } finally {
-      setLocationBusy(false);
-    }
+  // ---- Lecture hall reference (professor-selected on the map) ----
+  // The laptop's own GPS is deliberately not the reference: ±150 m is common
+  // indoors and can never satisfy a 50 m quality gate. The professor confirms a
+  // pin for the lecture hall instead; it is an administrative reference, not
+  // evidence that the professor is in the room.
+  const confirmLectureLocation = useCallback((next: LectureLocation) => {
+    const confirmed = createLectureLocation(
+      { latitude: next.latitude, longitude: next.longitude },
+      { confirmedAt: next.confirmedAt ?? Date.now(), label: next.label },
+    );
+    setLectureLocation(confirmed);
+    saveLectureLocation(confirmed);
+    setLectureLocationNotice(
+      `Lecture location confirmed · ${formatCoordinates(confirmed)}. This is the lecture hall, not the professor's device position.`,
+    );
   }, []);
 
-  const shareLocation = useCallback(() => {
-    void acquireInstructorLocation();
-  }, [acquireInstructorLocation]);
+  const clearLectureLocation = useCallback(() => {
+    setLectureLocation(null);
+    saveLectureLocation(null);
+    setLectureLocationNotice(null);
+  }, []);
+
+  const lectureLocationStatus: LectureLocationStatus =
+    lectureLocation && isLectureLocationFresh(lectureLocation) ? "CONFIRMED" : "UNCONFIRMED";
 
   const startSession = useCallback(async () => {
     if (!key) return;
 
-    // Never send an old reading as if it were current: a missing or stale
-    // reading is replaced by a fresh acquisition before the start request.
-    let reading = instructorLocation;
-    let precisionMet = locationQualityStatus === "VERIFIED";
-
-    if (!reading || !isReadingFresh(reading)) {
-      setStatus(
-        reading
-          ? "Your saved location reading is stale — requesting a fresh one…"
-          : "A valid location reading is required before starting — requesting one…",
-        "running"
-      );
-      setInstructorLocation(null);
-      setLocationQualityStatus("REJECTED");
-      const acquired = await acquireInstructorLocation();
-      if (!acquired.ok) {
-        setStatus(
-          `Session start needs a fresh location reading. ${acquired.message} [reason: ${acquired.reason}]`,
-          "error"
-        );
-        setStartDisabled(false);
-        return;
-      }
-      reading = acquired.reading;
-      precisionMet = acquired.precisionMet;
-    }
-
-    if (!precisionMet && LOCATION_QUALITY_POLICY === "REJECT") {
-      setStatus(
-        `A location reading with accuracy ≤${LOCATION_QUALITY.targetAccuracyMeters} m is required before starting.`,
-        "error"
-      );
+    // A session may only start from a confirmed, still-valid lecture location.
+    // There is no built-in fallback and no stale reuse.
+    if (!lectureLocation) {
+      setStatus("Confirm the lecture hall on the map before starting.", "error");
       return;
     }
+    if (!isLectureLocationFresh(lectureLocation)) {
+      setStatus("The confirmed lecture location is stale — confirm it again before starting.", "error");
+      return;
+    }
+
     setStartDisabled(true);
     setStarting(true);
     setStatus("Starting…", "running");
@@ -366,24 +333,25 @@ export function useAttendance(key: string | null) {
       const data = await apiPost("dqr-start", {
         key,
         lecture: lecture.trim() || "Lecture",
-        instructorLatitude: String(reading.latitude),
-        instructorLongitude: String(reading.longitude),
-        instructorAccuracy: String(reading.accuracy),
-        instructorLocationTimestamp: String(reading.timestamp),
-        locationQualityPolicy: LOCATION_QUALITY_POLICY,
+        instructorLatitude: String(lectureLocation.latitude),
+        instructorLongitude: String(lectureLocation.longitude),
+        instructorLocationSource: "map",
+        instructorLocationConfirmedAt: String(lectureLocation.confirmedAt),
       });
 
       if (!data.ok) {
         const reason = data.error || "UNKNOWN_START_ERROR";
         if (
-          reason === "LOW_ACCURACY" ||
-          reason === "STALE_LOCATION" ||
-          reason === "INVALID_LOCATION" ||
-          reason === "LOCATION_UNAVAILABLE"
+          reason === "LECTURE_LOCATION_INVALID" ||
+          reason === "LECTURE_LOCATION_STALE" ||
+          reason === "LECTURE_LOCATION_MISSING" ||
+          reason === "INVALID_LOCATION"
         ) {
-          setInstructorLocation(null);
-          setLocationQualityStatus("REJECTED");
-          setLocationStatus(`REJECTED · Server refused the instructor location: ${reason}. Refresh and retry.`);
+          setLectureLocation(null);
+          saveLectureLocation(null);
+          setLectureLocationNotice(
+            `The server rejected the lecture location (${reason}). Confirm the hall again.`,
+          );
         }
         setStatus(
           reason === "unauthorized"
@@ -397,19 +365,11 @@ export function useAttendance(key: string | null) {
       }
 
       setLecture(data.lecture || lecture.trim() || "Lecture");
-      if (data.locationQualityStatus) {
-        setLocationQualityStatus(data.locationQualityStatus);
-      }
       setRunning(true);
       setStarting(false);
       setStopDisabled(false);
       setLectureDisabled(true);
-      setStatus(
-        data.locationQualityStatus === "NEEDS_REVIEW"
-          ? "Session started with location review required"
-          : "Session started",
-        data.locationQualityStatus === "NEEDS_REVIEW" ? "stopped" : "running"
-      );
+      setStatus("Session started — reference: the confirmed lecture hall", "running");
       await fetchQR();
     } catch (error) {
       setStatus(
@@ -424,9 +384,7 @@ export function useAttendance(key: string | null) {
   }, [
     key,
     lecture,
-    instructorLocation,
-    locationQualityStatus,
-    acquireInstructorLocation,
+    lectureLocation,
     fetchQR,
     setRunning,
     setStatus,
@@ -499,11 +457,11 @@ export function useAttendance(key: string | null) {
     running,
     qr,
     tokensServed,
-    instructorLocation,
-    locationStatus,
-    locationQualityStatus,
-    locationBusy,
-    shareLocation,
+    lectureLocation,
+    lectureLocationStatus,
+    lectureLocationNotice,
+    confirmLectureLocation,
+    clearLectureLocation,
     attendanceRadiusMeters,
     locationStats,
     startSession,

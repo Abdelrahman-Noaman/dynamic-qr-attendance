@@ -6,19 +6,26 @@ This document describes the behavior present in the exported n8n workflow. It do
 
 `POST /dqr-start` checks the submitted professor key. For an authorized request, it creates a session ID, stores the lecture name, creates the first random token, and marks the session active in workflow static data.
 
-The request must also contain one instructor location reading. The dashboard
-collects up to three sequential fresh readings (`enableHighAccuracy: true`,
-`maximumAge: 0`, 12 s per call, 30 s overall) and sends the most accurate one.
-n8n validates the coordinate range, positive accuracy, a numeric capture
-timestamp that is not in the future, and a capture time no older than 30
-seconds, and rejects with `LOCATION_UNAVAILABLE`, `INVALID_LOCATION`, or
-`STALE_LOCATION`. The quality policy is configurable in the server-side
-`Create Session` Code node as `REVIEW` or `REJECT`; it is not trusted from the
-browser. With `REVIEW` (the default), an instructor reading above the 50 m
-quality target is stored as `NEEDS_REVIEW`; the session may start, but
-submissions are then rejected as `INSTRUCTOR_LOW_ACCURACY` because the reference
-is too imprecise to compare against. With `REJECT`, the session start fails with
-`LOW_ACCURACY`.
+The request must also carry the professor-confirmed lecture-hall reference:
+
+```text
+instructorLatitude             WGS-84 latitude of the map pin
+instructorLongitude            WGS-84 longitude of the map pin
+instructorLocationSource       "map" (default)
+instructorLocationConfirmedAt  epoch ms of the "Confirm Lecture Location" press
+```
+
+For a `map` reference n8n validates the coordinate ranges and the confirmation
+timestamp only — **no GPS accuracy is required or accepted for the reference** —
+and rejects with `LECTURE_LOCATION_MISSING`, `LECTURE_LOCATION_INVALID`, or
+`LECTURE_LOCATION_STALE` (confirmation older than 60 minutes). The stored
+session then holds `location: { latitude, longitude, accuracy: null, source: "map",
+confirmedAt }` and `locationQualityStatus: "CONFIRMED"`.
+
+The legacy `instructorLocationSource: "gps"` path is still accepted for tools
+that send a device reading; it keeps the original checks (coordinate range,
+positive accuracy ≤ 50 m, capture age ≤ 30 s, `STALE_LOCATION` /
+`LOW_ACCURACY`). The dashboard never uses it.
 
 ## 2. Generate Token
 
@@ -52,20 +59,33 @@ rather than a replacement for student identity verification.
 
 The workflow does not currently enforce a specific university email domain.
 
-The student page requests fresh readings only after `/dqr-check` succeeds, using
-the same shared module and the same configuration as the dashboard. It stops as
-soon as a reading meets the 50 m target, gives up after three readings or 30
-seconds, and refuses to submit at all when no acceptable reading is obtained.
-The workflow then validates both coordinate pairs, positive accuracy, and a
-capture age at or below 30 seconds, and calculates the Haversine distance
-against the instructor's session reference.
+The student page still uses real browser geolocation: high accuracy, no cached
+fixes, up to three sequential readings inside a 30 s window, and the most
+accurate fresh reading is submitted. If no reading meets the 50 m target the
+page does not submit at all.
 
-`Location Status` is a single technical classification: `VERIFIED`,
-`OUTSIDE_RADIUS`, `LOW_ACCURACY`, `INSTRUCTOR_LOW_ACCURACY`, `STALE_LOCATION`,
-`INVALID_LOCATION`, or `LOCATION_UNAVAILABLE`. Accuracy and freshness reasons
-are never reported as `OUTSIDE_RADIUS`. The default `REVIEW` policy stores
-genuine outside-radius attempts as `Needs Review`; low-accuracy attempts are
-rejected so the submission can be retried with a better reading.
+The workflow validates the student reading and decides once, with no review
+state:
+
+```text
+accuracy > 50 m                    -> REJECTED / LOW_ACCURACY
+age > 30 s                         -> REJECTED / STALE_LOCATION
+bad coordinates / accuracy / clock -> REJECTED / INVALID_LOCATION
+no reading                         -> REJECTED / LOCATION_UNAVAILABLE
+Haversine(student, confirmed hall) > 100 m -> REJECTED / OUTSIDE_RADIUS
+otherwise                          -> ACCEPTED / VERIFIED
+```
+
+`locationStatus` therefore only ever holds `VERIFIED`, `OUTSIDE_RADIUS`,
+`LOW_ACCURACY`, `STALE_LOCATION`, `INVALID_LOCATION`,
+`LOCATION_UNAVAILABLE`, or `LECTURE_LOCATION_*`. Accuracy and freshness
+failures are never reported as `OUTSIDE_RADIUS`, and the radius is never
+widened to compensate for a poor fix. Rejected submissions return
+`{ ok: false, status: "REJECTED", reason, distanceMeters, accuracyMeters }`
+to the student page and are not written to Sheets.
+
+Session counters in workflow static data are `{ verified, outsideRadius,
+rejected }`; `needsReview` no longer exists.
 
 `ATTENDANCE_RADIUS_METERS` (100 m) controls instructor/student distance.
 `MAX_GPS_ACCURACY_METERS` (50 m) controls uncertainty and is intentionally a
@@ -82,12 +102,15 @@ and does not append another row.
 
 ## 8. Record Attendance
 
-A new row is appended to the `Attendance` sheet with the original fields plus
-the instructor/student coordinates, distance, both accuracy values, location
-status, location timestamp, and review status. Column names and order are
-unchanged. The coordinates written are the exact values used in the distance
-calculation. `Present` is retained only for verified rows; review attempts use
-`Needs Review`. Only `VERIFIED` rows continue to the email branch.
+Only accepted submissions reach this node. A row is appended to the
+`Attendance` sheet with the original fields plus the instructor/student
+coordinates, distance, both accuracy values, location status, location
+timestamp, and review status. Column names and order are unchanged. The
+coordinates written are the exact values used in the distance calculation, and
+`Instructor Latitude/Longitude` are the confirmed lecture-hall pin.
+`Instructor GPS Accuracy (m)` is empty for a map reference (there is no measured
+accuracy to report). `Status` is `Present` for every row that is written, and
+only `VERIFIED` rows continue to the email branch.
 
 ## 9. Send Confirmation
 

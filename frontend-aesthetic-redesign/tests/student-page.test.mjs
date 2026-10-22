@@ -166,7 +166,10 @@ test("student page submits a fresh high-accuracy reading with shared defaults", 
 
   assert.equal(harness.element("viewSuccess").style.display, "block");
   assert.match(harness.element("locationNote").textContent, /reported accuracy ±10 m/);
-  assert.match(harness.element("#viewSuccess p").innerHTML, /Reported accuracy ±10 m/);
+  assert.match(harness.element("#viewSuccess h1").textContent, /Accepted/);
+  assert.match(harness.element("#viewSuccess p").innerHTML, /ACCEPTED \/ VERIFIED/);
+  assert.match(harness.element("#viewSuccess p").innerHTML, /Distance from the lecture hall: <strong>42\.5 m<\/strong>/);
+  assert.match(harness.element("#viewSuccess p").innerHTML, /Reported GPS accuracy: <strong>±10 m<\/strong>/);
   assert.match(harness.element("#viewSuccess p").innerHTML, /not a guarantee/);
 });
 
@@ -176,7 +179,16 @@ test("student page retries an imprecise reading before submitting", async () => 
       { position: { coords: { latitude: 29.9963212, longitude: 30.96691445, accuracy: 90 }, timestamp: Date.now() } },
       { position: { coords: { latitude: 29.9963212, longitude: 30.96691445, accuracy: 14 }, timestamp: Date.now() } },
     ],
-    submitResponse: { ok: true, locationStatus: "OUTSIDE_RADIUS", reviewStatus: "Needs Review", distanceMeters: 101.6, attendanceRadiusMeters: 100 },
+    submitResponse: {
+      ok: false,
+      status: "REJECTED",
+      reason: "OUTSIDE_RADIUS",
+      locationStatus: "OUTSIDE_RADIUS",
+      locationDetail: "Outside the 100 m attendance radius (101.6 m).",
+      distanceMeters: 101.6,
+      accuracyMeters: 14,
+      attendanceRadiusMeters: 100,
+    },
   });
 
   await harness.tick();
@@ -186,10 +198,13 @@ test("student page retries an imprecise reading before submitting", async () => 
   assert.equal(harness.geoCalls.length, 2);
   assert.equal(harness.posts.length, 1);
   assert.equal(harness.posts[0].body.get("studentAccuracy"), "14");
-  assert.equal(harness.element("viewSuccess").style.display, "block");
-  assert.match(harness.element("#viewSuccess h1").textContent, /Needs Review/);
-  assert.match(harness.element("#viewSuccess p").innerHTML, /Recorded distance: 101\.6 m \(radius 100 m\)/);
-  assert.match(harness.element("#viewSuccess p").innerHTML, /Reported accuracy ±14 m/);
+  // Rejected attempts never reach the success screen.
+  assert.equal(harness.element("viewSuccess").style.display, "none");
+  assert.equal(harness.element("formError").style.display, "block");
+  assert.match(harness.element("formError").textContent, /^REJECTED \/ OUTSIDE_RADIUS/);
+  assert.match(harness.element("formError").textContent, /Distance from lecture hall: 101\.6 m \(limit 100 m\)/);
+  assert.match(harness.element("formError").textContent, /Reported GPS accuracy: ±14 m/);
+  assert.equal(harness.element("btnSubmit").disabled, false);
 });
 
 test("student page blocks submission when every reading is too imprecise", async () => {
@@ -206,7 +221,7 @@ test("student page blocks submission when every reading is too imprecise", async
 
   assert.equal(harness.posts.length, 0, "no submission may be sent for an unusable reading");
   assert.equal(harness.element("formError").style.display, "block");
-  assert.match(harness.element("formError").textContent, /LOW_ACCURACY/);
+  assert.match(harness.element("formError").textContent, /REJECTED \/ LOW_ACCURACY/);
   assert.match(harness.element("formError").textContent, /±300 m/);
   assert.equal(harness.element("btnSubmit").disabled, false, "student can retry");
 });
@@ -223,5 +238,5 @@ test("student page reports denied permission with an explicit reason", async () 
 
   assert.equal(harness.geoCalls.length, 1, "permission denial must not be retried");
   assert.equal(harness.posts.length, 0);
-  assert.match(harness.element("formError").textContent, /LOCATION_PERMISSION_DENIED/);
+  assert.match(harness.element("formError").textContent, /REJECTED \/ LOCATION_PERMISSION_DENIED/);
 });

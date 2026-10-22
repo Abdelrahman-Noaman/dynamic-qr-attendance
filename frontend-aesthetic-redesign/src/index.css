@@ -297,6 +297,60 @@ body {
   );
 }
 
+/* ---------- Lecture-hall map (Leaflet, dark) ---------- */
+.dqr-map .leaflet-container {
+  background: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  outline: none;
+}
+.dqr-map .leaflet-control-attribution {
+  background: rgba(10, 6, 18, 0.78) !important;
+  color: rgba(245, 240, 230, 0.5) !important;
+  font-size: 9px;
+  padding: 2px 6px;
+}
+.dqr-map .leaflet-control-attribution a {
+  color: rgba(200, 255, 46, 0.8) !important;
+}
+.dqr-map .leaflet-bar a,
+.dqr-map .leaflet-bar a:hover {
+  background: rgba(20, 12, 36, 0.92);
+  color: var(--color-cream);
+  border-bottom-color: rgba(255, 255, 255, 0.14);
+}
+.dqr-map .leaflet-bar a:hover {
+  background: var(--color-lime);
+  color: var(--color-ink);
+}
+.dqr-map .leaflet-control-zoom {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.dqr-pin-wrap {
+  background: transparent;
+  border: 0;
+}
+.dqr-pin {
+  display: block;
+  width: 22px;
+  height: 22px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--color-pink);
+  border: 3px solid rgba(245, 240, 230, 0.92);
+  box-shadow:
+    0 0 0 5px rgba(255, 62, 165, 0.22),
+    0 8px 18px -6px rgba(0, 0, 0, 0.9);
+}
+.dqr-pin-hall {
+  background: var(--color-lime);
+  box-shadow:
+    0 0 0 5px rgba(200, 255, 46, 0.22),
+    0 8px 18px -6px rgba(0, 0, 0, 0.9);
+}
+
 /* ---------- Reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) {
   html {

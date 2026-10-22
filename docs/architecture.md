@@ -33,13 +33,25 @@ flowchart TD
 ### Shared location module
 
 `frontend/location-core.js` is the single implementation of geolocation
-acquisition and reading validation, imported by both the dashboard
-(`src/utils/location.ts`) and the student page. It requests high-accuracy,
-never-cached fixes, collects up to three readings inside a bounded window, keeps
-the most accurate fresh reading, and rejects readings with out-of-range
-coordinates, non-positive accuracy, missing timestamps, or stale capture times.
-The attendance radius stays on the server and is independent of the accuracy
-target.
+acquisition, reading validation and the attendance decision, imported by both
+the dashboard (`src/utils/location.ts`, `src/utils/lectureLocation.ts`) and the
+student page. It requests high-accuracy, never-cached fixes for the student,
+collects up to three readings inside a bounded window, keeps the most accurate
+fresh reading, and rejects readings with out-of-range coordinates, non-positive
+accuracy, missing timestamps, or stale capture times. It also validates the
+professor-confirmed lecture-hall reference (coordinates + confirmation age, no
+accuracy field) and exposes `assessStudentAttendance`, the same ACCEPTED/REJECTED
+decision the workflow makes. The attendance radius stays on the server and is
+independent of the accuracy target.
+
+### Map and geocoding
+
+`src/components/LocationPicker.tsx` renders a Leaflet map (no API key) inside the
+control panel, with Nominatim place search and a draggable pin. The confirmed pin
+is an administrative reference for where the class meets; it is not the
+professor's device position and not proof of presence. Tile and geocoding URLs
+come from `VITE_*` overrides in `src/config.ts`, so no secret ships in the
+bundle. The student page does not load the map at all.
 
 ### n8n
 
@@ -67,12 +79,14 @@ After the success response is prepared, the Gmail node sends a confirmation emai
 
 The browser is untrusted. It can submit arbitrary form values and tickets, so the n8n workflow verifies the professor key, QR session/token, HMAC ticket signature, ticket expiry, session status, required fields, email shape, device ID, duplicate status, coordinate ranges, accuracy, freshness, and distance before writing to Sheets. The device ID is a persistent browser-storage identifier, not a tamper-proof hardware fingerprint. Location readings are quality signals rather than proof of physical presence and can be spoofed.
 
-Location is captured only during the start and attendance flows, not continuously.
-The default policy is `REVIEW`: outside-radius attempts are auditable but are
-not marked verified and do not receive a verified-attendance email. Imprecise
-readings are re-requested first; if none meets the 50 m accuracy target the
-attempt is rejected with `LOW_ACCURACY` (or `INSTRUCTOR_LOW_ACCURACY` for the
-session reference) instead of being recorded as outside the radius.
+Student location is captured only during the attendance flow, not continuously.
+There is no review state: an attempt is either `ACCEPTED / VERIFIED` (written to
+Sheets, confirmation email) or `REJECTED / <reason>` (nothing recorded).
+Imprecise student readings are re-requested first; if none meets the 50 m
+accuracy target the attempt is rejected with `LOW_ACCURACY` instead of being
+recorded as outside the radius. The professor's reference is a map pin, so a
+coarse laptop fix cannot block or weaken the check — but it also means the
+reference is only as trustworthy as the professor's pin placement.
 
 The student page loads `frontend/location-core.js` as an ES module, so it must
 be served over HTTP(S) together with its sibling module file; opening the page
