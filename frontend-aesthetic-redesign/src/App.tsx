@@ -7,12 +7,9 @@ import { KeyGate } from "./components/KeyGate";
 import { Marquee } from "./components/Marquee";
 import { QrStage } from "./components/QrStage";
 import { Stats } from "./components/Stats";
-import {
-  LOCATION_QUALITY_POLICY,
-  useAttendance,
-} from "./hooks/useAttendance";
+import { MAX_GPS_ACCURACY_METERS, useAttendance } from "./hooks/useAttendance";
 import { usePointerFx } from "./hooks/usePointerFx";
-import { LOCATION_QUALITY } from "./utils/location";
+import { formatCoordinates } from "./utils/lectureLocation";
 
 export default function App() {
   // Same contract as the original page: the professor key lives in ?key=…
@@ -42,8 +39,11 @@ export default function App() {
     { label: "Token rotates", value: a.qr ? `every ${Math.round(a.qr.durationMs / 1000)}s` : "—" },
     { label: "Tokens served", value: hasKey ? String(a.tokensServed).padStart(2, "0") : "—" },
     { label: "Verified", value: a.qr ? String(a.locationStats.verified) : "—" },
-    { label: "Outside radius", value: a.qr ? String(a.locationStats.outsideRadius) : "—" },
-    { label: "Needs review", value: a.qr ? String(a.locationStats.needsReview) : "—" },
+    { label: "Rejected", value: a.qr ? String(a.locationStats.rejected) : "—" },
+    {
+      label: "Lecture hall",
+      value: a.lectureLocation ? formatCoordinates(a.lectureLocation) : "not confirmed",
+    },
   ];
 
   return (
@@ -61,11 +61,12 @@ export default function App() {
                 lecture={a.lecture}
                 onLectureChange={a.setLecture}
                 lectureDisabled={a.lectureDisabled}
+                // A session cannot start until the professor confirms a valid
+                // lecture-hall location on the map.
                 startDisabled={
                   a.startDisabled ||
-                  !a.instructorLocation ||
-                  (a.locationQualityStatus === "REJECTED" &&
-                    LOCATION_QUALITY_POLICY === "REJECT")
+                  !a.lectureLocation ||
+                  a.lectureLocationStatus !== "CONFIRMED"
                 }
                 stopDisabled={a.stopDisabled}
                 starting={a.starting}
@@ -74,15 +75,13 @@ export default function App() {
                 status={a.status}
                 onStart={a.startSession}
                 onStop={a.stopSession}
-                locationStatus={a.locationStatus}
-                locationBusy={a.locationBusy}
-                hasLocation={Boolean(a.instructorLocation)}
+                lectureLocation={a.lectureLocation}
+                lectureLocationStatus={a.lectureLocationStatus}
+                lectureLocationNotice={a.lectureLocationNotice}
                 attendanceRadiusMeters={a.attendanceRadiusMeters}
-                maxAccuracyMeters={LOCATION_QUALITY.targetAccuracyMeters}
-                reportedAccuracyMeters={a.instructorLocation?.accuracy ?? null}
-                locationQualityStatus={a.locationQualityStatus}
-                locationQualityPolicy={LOCATION_QUALITY_POLICY}
-                onShareLocation={a.shareLocation}
+                maxAccuracyMeters={MAX_GPS_ACCURACY_METERS}
+                onConfirmLectureLocation={a.confirmLectureLocation}
+                onClearLectureLocation={a.clearLectureLocation}
               />
             ) : (
               <KeyGate />

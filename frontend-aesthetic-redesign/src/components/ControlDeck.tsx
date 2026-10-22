@@ -1,7 +1,9 @@
 import type { FormEvent } from "react";
 import type { Status, Tone } from "../hooks/useAttendance";
+import type { LectureLocation } from "../utils/lectureLocation";
 import { cn } from "../utils/cn";
 import { AlertIcon, LockIcon, PlayIcon, StopIcon } from "./Icons";
+import { LocationPicker } from "./LocationPicker";
 import { MagneticButton } from "./MagneticButton";
 
 interface Props {
@@ -16,15 +18,13 @@ interface Props {
   status: Status;
   onStart: () => void;
   onStop: () => void;
-  locationStatus: string;
-  locationBusy: boolean;
-  hasLocation: boolean;
+  lectureLocation: LectureLocation | null;
+  lectureLocationStatus: "CONFIRMED" | "UNCONFIRMED";
+  lectureLocationNotice: string | null;
   attendanceRadiusMeters: number;
   maxAccuracyMeters: number;
-  reportedAccuracyMeters: number | null;
-  locationQualityStatus: "VERIFIED" | "NEEDS_REVIEW" | "REJECTED";
-  locationQualityPolicy: "REVIEW" | "REJECT";
-  onShareLocation: () => void;
+  onConfirmLectureLocation: (location: LectureLocation) => void;
+  onClearLectureLocation: () => void;
 }
 
 const TONE: Record<Tone, string> = {
@@ -99,15 +99,13 @@ export function ControlDeck({
   status,
   onStart,
   onStop,
-  locationStatus,
-  locationBusy,
-  hasLocation,
+  lectureLocation,
+  lectureLocationStatus,
+  lectureLocationNotice,
   attendanceRadiusMeters,
   maxAccuracyMeters,
-  reportedAccuracyMeters,
-  locationQualityStatus,
-  locationQualityPolicy,
-  onShareLocation,
+  onConfirmLectureLocation,
+  onClearLectureLocation,
 }: Props) {
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -155,44 +153,39 @@ export function ControlDeck({
       </div>
 
       <div className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-4">
-        <div className="w-full rounded-2xl border border-white/15 bg-white/[0.03] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="font-mono text-xs font-bold tracking-[0.2em] text-pink uppercase">
-                Instructor location
-              </p>
-              <p className="mt-2 text-sm text-cream/75" role="status">
-                {locationStatus}
-              </p>
-              <p className="mt-1 font-mono text-[11px] font-bold tracking-[0.16em] text-cream/55 uppercase">
-                Quality outcome: {locationQualityStatus.replace("_", " ")}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onShareLocation}
-              disabled={locationBusy || live}
-              className="rounded-full border border-lime/60 px-4 py-2 font-mono text-xs font-bold tracking-wide text-lime uppercase transition-colors hover:bg-lime hover:text-ink disabled:cursor-not-allowed disabled:border-white/20 disabled:text-cream/45"
-            >
-              {locationBusy ? "Locating…" : hasLocation ? "Refresh location" : "Share my location"}
-            </button>
+        <div className="w-full">
+          <LocationPicker
+            value={lectureLocation}
+            onConfirm={onConfirmLectureLocation}
+            onClear={onClearLectureLocation}
+            disabled={live}
+            radiusMeters={attendanceRadiusMeters}
+            maxAccuracyMeters={maxAccuracyMeters}
+          />
+
+          <div
+            role="status"
+            aria-live="polite"
+            className={cn(
+              "mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-3 py-2 font-mono text-[11px]",
+              lectureLocationStatus === "CONFIRMED"
+                ? "border-lime/50 bg-lime/10 text-lime"
+                : "border-amber/50 bg-amber/10 text-amber",
+            )}
+          >
+            <span className="font-bold tracking-[0.16em] uppercase">
+              {lectureLocationStatus === "CONFIRMED" ? "Reference ready" : "Reference missing"}
+            </span>
+            <span className="text-cream/70">
+              {lectureLocationStatus === "CONFIRMED"
+                ? "Session start is unlocked. Students are verified against this hall."
+                : "Confirm the lecture location on the map to unlock Start."}
+            </span>
           </div>
-          <p className="mt-3 text-xs leading-relaxed text-cream/55">
-            Fresh browser readings only — cached positions are refused. Up to three
-            readings are collected inside a bounded window and the most accurate one
-            is kept. Reported accuracy:{" "}
-            {reportedAccuracyMeters === null
-              ? "not available"
-              : `±${Math.round(reportedAccuracyMeters)} m`}
-            . Requesting high accuracy does not guarantee an accurate position, so a
-            reading above the {maxAccuracyMeters} m quality target is{" "}
-            {locationQualityPolicy === "REVIEW"
-              ? "kept as Needs Review and cannot verify attendance"
-              : "rejected after the retries"}{" "}
-            — the reading is re-requested first. GPS accuracy is deliberately
-            separate from the {attendanceRadiusMeters} m attendance radius. Move
-            outdoors, enable device location services, and retry for a clearer reading.
-          </p>
+
+          {lectureLocationNotice && (
+            <p className="mt-2 font-mono text-[11px] leading-relaxed text-cream/60">{lectureLocationNotice}</p>
+          )}
         </div>
 
         {/* Start */}

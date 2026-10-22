@@ -295,7 +295,8 @@ test("accuracy formatting is explicit in meters", () => {
 });
 
 // ============================================================
-// n8n workflow: run the exported code nodes with mocked n8n globals
+// Workflow contract (the full node-by-node matrix lives in
+// lecture-location.test.mjs, which executes the exported code nodes).
 // ============================================================
 
 const workflow = JSON.parse(
@@ -303,196 +304,15 @@ const workflow = JSON.parse(
 );
 const workflowNode = (name) => workflow.nodes.find((node) => node.name === name);
 
-function runCodeNode(name, { input, session }) {
-  const { jsCode } = workflowNode(name).parameters;
-  const staticData = { session: session ? structuredClone(session) : undefined };
-  const $input = { first: () => ({ json: input }) };
-  const $getWorkflowStaticData = () => staticData;
-  const run = new Function("$input", "$getWorkflowStaticData", jsCode);
-  return { output: run($input, $getWorkflowStaticData)[0].json, staticData };
-}
+test("the workflow keeps the 100 m radius and the 50 m student accuracy limit", () => {
+  const createSession = workflowNode("Create Session").parameters.jsCode;
+  const validateSubmission = workflowNode("Validate Submission").parameters.jsCode;
 
-const PROF_KEY = "MySecretyKey2005";
-
-function startSession(overrides = {}) {
-  const body = {
-    key: PROF_KEY,
-    lecture: "Data Security",
-    instructorLatitude: String(INSTRUCTOR.latitude),
-    instructorLongitude: String(INSTRUCTOR.longitude),
-    instructorAccuracy: "10",
-    instructorLocationTimestamp: String(Date.now()),
-    ...overrides,
-  };
-  return runCodeNode("Create Session", { input: { body } });
-}
-
-function submission(session, overrides = {}) {
-  const now = Date.now();
-  return runCodeNode("Validate Submission", {
-    session,
-    input: {
-      sig: "valid-signature",
-      expectedSig: "valid-signature",
-      exp: now + 60_000,
-      sessionId: session.sessionId,
-      name: "Test Student",
-      studentId: "20230001",
-      email: "student@university.edu",
-      deviceId: "device-1",
-      studentLatitude: STUDENT.latitude,
-      studentLongitude: STUDENT.longitude,
-      studentAccuracy: 10,
-      studentLocationTimestamp: now,
-      ...overrides,
-    },
-  }).output;
-}
-
-test("Create Session keeps the 100 m radius and 50 m accuracy target separate", () => {
-  const { output, staticData } = startSession();
-
-  assert.equal(output.ok, true);
-  assert.equal(output.attendanceRadiusMeters, 100);
-  assert.equal(output.maxAccuracyMeters, 50);
-  assert.equal(output.locationQualityStatus, "VERIFIED");
-  assert.deepEqual(staticData.session.locationConfig, {
-    radiusMeters: 100,
-    maxAccuracyMeters: 50,
-    maxAgeSeconds: 30,
-    policy: "REVIEW",
-  });
-});
-
-test("Create Session rejects stale and invalid instructor readings with explicit reasons", () => {
-  assert.equal(
-    startSession({ instructorLocationTimestamp: String(Date.now() - 31_000) }).output.error,
-    "STALE_LOCATION",
-  );
-  assert.equal(startSession({ instructorLatitude: "123" }).output.error, "INVALID_LOCATION");
-  assert.equal(startSession({ instructorAccuracy: "0" }).output.error, "INVALID_LOCATION");
-  assert.equal(startSession({ instructorLocationTimestamp: "" }).output.error, "LOCATION_UNAVAILABLE");
-  assert.equal(
-    startSession({ instructorLocationTimestamp: String(Date.now() + 120_000) }).output.error,
-    "INVALID_LOCATION",
-  );
-});
-
-test("Create Session marks a poor-quality instructor reading as NEEDS_REVIEW (REVIEW policy)", () => {
-  const { output } = startSession({ instructorAccuracy: "80" });
-
-  assert.equal(output.ok, true);
-  assert.equal(output.locationQualityStatus, "NEEDS_REVIEW");
-});
-
-test("Validate Submission records the reported row as 101.6 m OUTSIDE_RADIUS, not verified", () => {
-  const { staticData } = startSession();
-  const result = submission(staticData.session);
-
-  assert.equal(result.valid, true, `unexpected rejection: ${result.reason}`);
-  assert.equal(result.reason, "");
-  assert.equal(result.locationStatus, "OUTSIDE_RADIUS");
-  assert.equal(result.reviewStatus, "Needs Review");
-  assert.equal(result.distanceMeters, 101.6);
-  assert.equal(result.attendanceRadiusMeters, 100);
-  // The coordinates written to the sheet are the ones the distance used.
-  assert.equal(result.instructorLatitude, INSTRUCTOR.latitude);
-  assert.equal(result.instructorLongitude, INSTRUCTOR.longitude);
-  assert.equal(result.studentLatitude, STUDENT.latitude);
-  assert.equal(result.studentLongitude, STUDENT.longitude);
-});
-
-test("Validate Submission verifies a genuinely close reading", () => {
-  const { staticData } = startSession();
-  const result = submission(staticData.session, {
-    studentLatitude: INSTRUCTOR.latitude + 0.0008,
-    studentLongitude: INSTRUCTOR.longitude,
-  });
-
-  assert.equal(result.locationStatus, "VERIFIED");
-  assert.equal(result.reviewStatus, "Confirmed");
-  assert.equal(result.reason, "");
-  assert.ok(result.distanceMeters < 100);
-});
-
-test("Validate Submission rejects poor student accuracy as LOW_ACCURACY, never OUTSIDE_RADIUS", () => {
-  const { staticData } = startSession();
-  const result = submission(staticData.session, { studentAccuracy: 80 });
-
-  assert.equal(result.valid, false);
-  assert.equal(result.reason, "LOW_ACCURACY");
-  assert.equal(result.locationStatus, "LOW_ACCURACY");
-  assert.equal(result.distanceMeters, null);
-  assert.match(result.locationDetail, /80 m, worse than the 50 m quality target/);
-});
-
-test("Validate Submission rejects stale and invalid student readings separately", () => {
-  const { staticData } = startSession();
-
-  const stale = submission(staticData.session, { studentLocationTimestamp: Date.now() - 31_000 });
-  assert.equal(stale.reason, "STALE_LOCATION");
-  assert.match(stale.locationDetail, /31\.\d s old/);
-
-  const invalid = submission(staticData.session, { studentLatitude: 91 });
-  assert.equal(invalid.reason, "INVALID_LOCATION");
-
-  const future = submission(staticData.session, { studentLocationTimestamp: Date.now() + 60_000 });
-  assert.equal(future.reason, "INVALID_LOCATION");
-
-  const missing = submission(staticData.session, { studentAccuracy: Number.NaN });
-  assert.equal(missing.reason, "LOCATION_UNAVAILABLE");
-});
-
-test("Validate Submission reports an imprecise instructor reference separately", () => {
-  const { staticData } = startSession({ instructorAccuracy: "80" });
-  const result = submission(staticData.session);
-
-  assert.equal(result.valid, false);
-  assert.equal(result.reason, "INSTRUCTOR_LOW_ACCURACY");
-  assert.equal(result.locationStatus, "INSTRUCTOR_LOW_ACCURACY");
-});
-
-test("Validate Submission still enforces session, ticket, duplicate-path and email checks", () => {
-  const { staticData } = startSession();
-
-  assert.equal(submission(staticData.session, { sig: "tampered" }).reason, "BAD_TICKET");
-  assert.equal(submission(staticData.session, { exp: Date.now() - 1 }).reason, "TICKET_EXPIRED");
-  assert.equal(submission({ ...staticData.session, active: false }).reason, "SESSION_CLOSED");
-  assert.equal(submission(staticData.session, { email: "not-an-email" }).reason, "BAD_EMAIL");
-  assert.equal(submission(staticData.session, { deviceId: "" }).reason, "DEVICE_ID_REQUIRED");
-});
-
-test("Google Sheets mappings and the verified-only email path are unchanged", () => {
-  const mapping = workflowNode("Save Attendance").parameters.columns.value;
-  assert.deepEqual(Object.keys(mapping), [
-    "Session ID",
-    "Student ID",
-    "Device ID",
-    "Student Name",
-    "Email",
-    "Attendance Time",
-    "Token",
-    "Status",
-    "Instructor Latitude",
-    "Instructor Longitude",
-    "Student Latitude",
-    "Student Longitude",
-    "Distance (m)",
-    "Instructor GPS Accuracy (m)",
-    "Student GPS Accuracy (m)",
-    "Location Status",
-    "Location Timestamp",
-    "Review Status",
-  ]);
-  assert.match(mapping["Distance (m)"], /distanceMeters/);
-  assert.match(mapping["Location Status"], /locationStatus/);
-  assert.match(mapping["Status"], /=== 'VERIFIED' \? 'Present' : 'Needs Review'/);
-
-  const sign = workflowNode("Sign Ticket");
-  const verify = workflowNode("Verify Ticket Signature");
-  assert.equal(sign.parameters.action, "hmac");
-  assert.equal(verify.parameters.action, "hmac");
-  assert.equal(workflowNode("Already Submitted?").type, "n8n-nodes-base.if");
-  const verifiedBranch = workflow.connections["Verified Location?"].main[0];
-  assert.deepEqual(verifiedBranch.map((edge) => edge.node), ["Use Outlook Email?"]);
+  assert.match(createSession, /const ATTENDANCE_RADIUS_METERS = 100;/);
+  assert.match(createSession, /const MAX_GPS_ACCURACY_METERS = 50;/);
+  assert.match(validateSubmission, /maxAccuracyMeters: 50/);
+  assert.match(validateSubmission, /radiusMeters: 100/);
+  // Server freshness window matches the shared client module.
+  assert.match(createSession, /const MAX_LOCATION_AGE_SECONDS = 30;/);
+  assert.equal(LOCATION_QUALITY.maxReadingAgeMs, 30_000);
 });

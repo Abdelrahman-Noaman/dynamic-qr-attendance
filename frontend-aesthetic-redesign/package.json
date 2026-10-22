@@ -7,22 +7,25 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node tests/location-policy.test.mjs && node --test tests/location-acquisition.test.mjs tests/student-page.test.mjs",
+    "test": "node tests/location-policy.test.mjs && node --test tests/location-acquisition.test.mjs tests/student-page.test.mjs tests/lecture-location.test.mjs",
     "test:location": "node tests/location-policy.test.mjs",
-    "test:acquisition": "node --test tests/location-acquisition.test.mjs tests/student-page.test.mjs"
+    "test:acquisition": "node --test tests/location-acquisition.test.mjs tests/student-page.test.mjs tests/lecture-location.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/unbounded": "^5.3.0",
     "@fontsource/instrument-serif": "^5.3.0",
     "@fontsource/space-mono": "^5.3.0",
     "clsx": "2.1.1",
+    "leaflet": "^1.9.4",
     "qrcode-generator": "^2.0.4",
     "react": "19.2.6",
     "react-dom": "19.2.6",
+    "react-leaflet": "^5.0.0",
     "tailwind-merge": "3.4.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.1.17",
+    "@types/leaflet": "^1.9.20",
     "@types/node": "22.19.17",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",

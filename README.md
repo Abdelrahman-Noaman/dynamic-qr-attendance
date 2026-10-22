@@ -255,9 +255,9 @@ The final submission is validated again before attendance is recorded. The syste
 
 #### 5. Location Verification
 
-Both the instructor dashboard and the student page load the same module,
-`frontend/location-core.js`, so the two roles are acquired and judged by
-identical rules. Each request uses:
+The dashboard and the student page share one policy module,
+`frontend/location-core.js`, so a reading is validated by the same rules no
+matter who submits it. The **student** browser reading is acquired with:
 
 ```text
 enableHighAccuracy: true
@@ -271,37 +271,50 @@ The most accurate *fresh* reading wins. A reading is accepted only when the
 coordinates are in range, the accuracy is a positive number, and the capture
 timestamp is recent — an old reading is never reused as the current position.
 Requesting high accuracy does **not** guarantee an accurate position; the
-reported accuracy is displayed in meters so the reader can judge it.
+reported accuracy is displayed in meters so the reader can judge it. The
+professor is not asked for a GPS reading at all: the laptop's coarse fix cannot
+gate the session, and it is never used as the reference point.
 
-The instructor's reference reading is stored in n8n state. After QR
-validation, the student is asked for their own fresh reading. The workflow
-validates both readings, calculates the Haversine distance on the backend, and
-applies:
+The session reference is **not** the professor's laptop GPS. Indoor laptop
+fixes are routinely ±150 m or worse and can never satisfy a 50 m quality gate,
+so the professor selects the lecture hall on an interactive map in the control
+panel:
+
+- search a place (OpenStreetMap Nominatim), or click/drag the pin to the room;
+- press **Confirm Lecture Location**;
+- the confirmed latitude/longitude and `confirmedAt` timestamp are stored in n8n
+  state as the session reference.
+
+A map-confirmed reference carries **no GPS accuracy requirement** — it is an
+administrative statement of where the class meets, not verified proof that the
+professor is standing there. It must be confirmed within the last hour.
+
+After QR validation the student is asked for their own real browser reading.
+The workflow validates it, calculates the Haversine distance on the backend
+against the confirmed hall, and applies:
 
 ```text
-ATTENDANCE_RADIUS_METERS = 100
-MAX_GPS_ACCURACY_METERS = 50
-MAX_LOCATION_AGE_SECONDS = 30
-LOCATION_DECISION_POLICY = REVIEW
-LOCATION_QUALITY_POLICY = REVIEW
+ATTENDANCE_RADIUS_METERS = 100        # student distance from the hall
+MAX_GPS_ACCURACY_METERS = 50          # student reported accuracy ceiling
+MAX_LOCATION_AGE_SECONDS = 30         # student reading freshness
+LECTURE_LOCATION_MAX_AGE_MINUTES = 60 # map confirmation freshness
 ```
 
-Only fresh, accurate readings within the radius are `VERIFIED`. GPS accuracy
-and the attendance radius are separate settings: a reading that is too
-imprecise is re-requested, and if no acceptable reading is obtained the attempt
-is rejected with `LOW_ACCURACY` (or `INSTRUCTOR_LOW_ACCURACY` when the session
-reference itself is imprecise) rather than being reported as outside the
-radius. Under the default `REVIEW` policy, genuine outside-radius attempts are
-recorded as `Needs Review`. Stale, invalid, and unavailable readings are
-rejected. The browser never decides the final outcome.
+Outcomes are terminal — there is no review state:
 
-The instructor quality policy is configured in the n8n `Create Session` Code
-node, not trusted from the browser, and is separate from the attendance radius:
-`REVIEW` allows a poor-quality instructor reading to start a session as
-`NEEDS_REVIEW`, but submissions are then rejected as `INSTRUCTOR_LOW_ACCURACY`
-(the reference is too imprecise for a meaningful distance), so refresh the
-instructor location before starting. `REJECT` prevents session start until the
-reading meets the quality target.
+```text
+ACCEPTED / VERIFIED         distance <= 100 m and accuracy <= 50 m
+REJECTED / OUTSIDE_RADIUS   distance >  100 m
+REJECTED / LOW_ACCURACY     reported accuracy > 50 m
+REJECTED / STALE_LOCATION   reading older than 30 s
+REJECTED / INVALID_LOCATION out-of-range coordinates / accuracy / timestamp
+REJECTED / LECTURE_LOCATION_*  the confirmed hall is missing, invalid or stale
+```
+
+Only `ACCEPTED / VERIFIED` submissions are written to Google Sheets and emailed.
+Accuracy problems are never reported as being outside the radius, and the radius
+is never widened to compensate for a poor fix. The browser never decides the
+outcome.
 
 #### 6. Duplicate Prevention
 
@@ -388,14 +401,26 @@ Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | T
 
 ### 📍 Location Verification
 
-The professor dashboard provides a **Share my location** control, the reported
-accuracy in meters, the configured radius, and live verified/outside-radius/
-review counts. If the saved reading is older than the freshness limit, the
-dashboard re-acquires a fresh one before starting a session instead of sending
-the old coordinates. The student page requests location only after the QR
+The professor dashboard embeds a **dark Leaflet map** with place search, a
+draggable pin, live latitude/longitude readout and a **Confirm Lecture Location**
+button plus a confirmation indicator. `Start` is disabled until a valid lecture
+location is confirmed, and the confirmed hall is shown on the map and in the
+stats strip. A secondary "Centre on my device" button can centre the map on the
+laptop's (possibly very coarse) fix, and it explicitly says that a device fix is
+not proof of the room. The student page requests location only after the QR
 passes `/dqr-check`, shows each attempt's reported accuracy, and refuses to
-submit when no reading meets the quality target. Geolocation requires HTTPS
-(except localhost) and explicit browser/device permission.
+submit when no reading meets the 50 m target. Student geolocation requires
+HTTPS (except localhost) and explicit browser/device permission.
+
+**Map providers:** tiles are CARTO's dark basemap over OpenStreetMap data and
+geocoding is OpenStreetMap Nominatim. Neither needs an API key, so nothing
+secret ships in the bundle. Override them with `VITE_MAP_TILE_URL`,
+`VITE_MAP_ATTRIBUTION`, `VITE_GEOCODE_URL` and `VITE_REVERSE_GEOCODE_URL` (for
+example your own Nominatim/Photon instance, or a self-hosted tile server) if you
+expect heavy use; respect the public services' usage policies and keep the
+attribution visible. If you prefer Google Maps you must add your own
+referrer-restricted key and a server-side proxy — a browser key is always
+readable, so restricting it is the only real protection.
 
 The workflow uses the Haversine great-circle calculation and records only the
 coordinates, distance, and accuracy values needed for attendance auditing.
@@ -405,7 +430,7 @@ Worked example (the row that previously reported `12.99753367`):
 instructor: 29.99625519, 30.96586222
 student:    29.9963212,  30.96691445
 distance:   101.59653631559846 m  ->  101.6 m in the sheet
-outcome:    OUTSIDE_RADIUS (100 m radius) -> Needs Review under REVIEW policy
+outcome:    REJECTED / OUTSIDE_RADIUS (limit 100 m)
 ```
 
 Re-running the exported workflow code with those coordinates returns
@@ -561,9 +586,9 @@ dynamic-qr-attendance/
 │   └── dynamic-qr-attendance.json
 │
 ├── frontend/
-│   ├── professor-dashboard.html      # built dashboard bundle
+│   ├── professor-dashboard.html      # built dashboard bundle (map included)
 │   ├── student-attendance.html
-│   └── location-core.js              # shared geolocation acquisition + checks
+│   └── location-core.js              # shared acquisition, validation, decision
 │
 └── docs/
     │
@@ -619,6 +644,21 @@ frontend/student-attendance.html
 ```
 
 Also configure the student page URL used inside the professor dashboard.
+
+The lecture-hall map needs **no API key**: it uses CARTO dark tiles over
+OpenStreetMap with Nominatim place search. Optional overrides live in
+`frontend-aesthetic-redesign/.env` (see `.env.example`):
+
+```text
+VITE_MAP_TILE_URL      XYZ tile template (default: CARTO dark_all)
+VITE_MAP_ATTRIBUTION   attribution HTML shown on the map
+VITE_GEOCODE_URL       Nominatim-compatible search endpoint
+VITE_REVERSE_GEOCODE_URL  reverse geocoding endpoint
+```
+
+If you host your own Nominatim/Photon or tile server, point these at it. If you
+switch to Google Maps, keep the key referrer-restricted and proxy requests
+server-side — a key embedded in a browser bundle is always readable.
 
 Open the professor page using:
 
@@ -685,9 +725,11 @@ The system should be tested against both successful and invalid flows.
 | Session stopped | ❌ New submissions rejected |
 | Valid submission | ✅ Recorded in Google Sheets |
 | Valid submission | 📧 Confirmation email sent |
-| Instructor location missing or denied | ❌ Session start rejected |
+| Lecture location not confirmed | ❌ Start stays disabled |
+| Lecture location confirmed on the map | ✅ Session start allowed (no GPS accuracy gate) |
+| Lecture location confirmed > 60 min ago | ❌ `LECTURE_LOCATION_STALE` |
 | Student within 100 m with accuracy ≤ 50 m | ✅ `VERIFIED` |
-| Student outside radius | ⚠️ `Needs Review`, no verification email |
+| Student outside radius | ❌ `REJECTED / OUTSIDE_RADIUS`, nothing recorded |
 | Accuracy above 50 m | ❌ `LOW_ACCURACY` |
 | Reading older than 30 seconds | ❌ `STALE_LOCATION` |
 | Invalid coordinates | ❌ `INVALID_LOCATION` |
@@ -714,8 +756,11 @@ The current prototype also has several intentional limitations:
 - Browser geolocation can be spoofed and does not prove presence
 - `enableHighAccuracy` only requests the platform's best fix; reported accuracy
   remains an estimate and cannot be guaranteed, especially indoors
-- The default `REVIEW` policy records outside-radius attempts but does not yet
-  provide a secure instructor approval endpoint
+- The lecture-hall reference is a map pin chosen by the professor; it is not
+  cryptographic proof of the professor's presence, and a professor could pin the
+  wrong room (checking the pin is an operational control)
+- Rejected attempts are not written to Sheets, so the audit trail there only
+  contains verified attendance
 - n8n workflow static data is not transaction-safe under multi-instance
   concurrency; use a database-backed session and uniqueness constraint at scale
 

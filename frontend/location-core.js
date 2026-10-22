@@ -52,6 +52,7 @@
  */
 
 // ---- Quality targets (accuracy), independent of the attendance radius ----
+/** @type {Readonly<{targetAccuracyMeters: number, maxReadingAgeMs: number, futureTimestampToleranceMs: number, attendanceRadiusMeters: number}>} */
 export const LOCATION_QUALITY = Object.freeze({
   /** Readings at or under this reported accuracy (meters) count as good quality. */
   targetAccuracyMeters: 50,
@@ -64,6 +65,7 @@ export const LOCATION_QUALITY = Object.freeze({
 });
 
 // ---- How readings are requested ----
+/** @type {Readonly<{enableHighAccuracy: boolean, maximumAgeMs: number, perReadingTimeoutMs: number, totalTimeoutMs: number, maxAttempts: number, acceptTargetAccuracyMeters: number}>} */
 export const LOCATION_ACQUISITION = Object.freeze({
   /** Ask the platform for its most accurate fix. Not a guarantee of accuracy. */
   enableHighAccuracy: true,
@@ -87,6 +89,10 @@ export const LOCATION_REASONS = Object.freeze({
   STALE: "STALE_LOCATION",
   LOW_ACCURACY: "LOW_ACCURACY",
   INSTRUCTOR_LOW_ACCURACY: "INSTRUCTOR_LOW_ACCURACY",
+  OUTSIDE_RADIUS: "OUTSIDE_RADIUS",
+  LECTURE_LOCATION_INVALID: "LECTURE_LOCATION_INVALID",
+  LECTURE_LOCATION_STALE: "LECTURE_LOCATION_STALE",
+  LECTURE_LOCATION_MISSING: "LECTURE_LOCATION_MISSING",
 });
 
 /**
@@ -118,6 +124,14 @@ export function describeLocationReason(reason, details = {}) {
       return `The best reading was ${accuracy === null ? "above the quality target" : `±${accuracy} m`}, which is worse than the ${target} m quality target. Accuracy is an estimate, so a high-accuracy request is not a guarantee; move outdoors or near a window and retry.`;
     case LOCATION_REASONS.INSTRUCTOR_LOW_ACCURACY:
       return "The instructor's session reference reading is too imprecise to verify anyone's distance. Ask the instructor to refresh their location and start a new session.";
+    case LOCATION_REASONS.OUTSIDE_RADIUS:
+      return `Your position is more than ${Math.round(details.radiusMeters ?? LOCATION_QUALITY.attendanceRadiusMeters)} m from the lecture hall. This attempt was rejected.`;
+    case LOCATION_REASONS.LECTURE_LOCATION_INVALID:
+      return "The lecture-hall location is invalid (coordinates or confirmation timestamp out of range). Ask the instructor to confirm the lecture location again.";
+    case LOCATION_REASONS.LECTURE_LOCATION_STALE:
+      return "The confirmed lecture-hall location is too old for this session. Ask the instructor to confirm the lecture location again.";
+    case LOCATION_REASONS.LECTURE_LOCATION_MISSING:
+      return "No lecture-hall location has been confirmed for this session.";
     default:
       return reason || "Location could not be obtained.";
   }
@@ -260,6 +274,159 @@ export function pickBestReading(readings, options = {}) {
 export function formatAccuracy(meters) {
   if (!isFiniteNumber(/** @type {number} */ (meters)) || /** @type {number} */ (meters) <= 0) return "not reported";
   return `±${Math.round(/** @type {number} */ (meters))} m`;
+}
+
+// ============================================================
+// Lecture-hall reference location (selected on the map by the instructor)
+//
+// The professor's laptop GPS may be far too imprecise for a 100 m radius, so the
+// reference point for a session is a *confirmed map pin* for the lecture hall.
+// It is an administrative reference, not proof that the professor is standing
+// there, and it carries no GPS accuracy requirement.
+// ============================================================
+
+/** @type {Readonly<{source: string, maxConfirmationAgeMs: number, futureToleranceMs: number}>} */
+export const LECTURE_LOCATION = Object.freeze({
+  /** Marker for references chosen on the map rather than from device GPS. */
+  source: "map",
+  /** A confirmed hall must have been confirmed within this window before a start. */
+  maxConfirmationAgeMs: 60 * 60 * 1000,
+  /** Tolerance for a device clock slightly ahead of the page clock. */
+  futureToleranceMs: 60000,
+});
+
+/**
+ * True when both values are finite numbers inside WGS-84 ranges.
+ * @param {unknown} latitude
+ * @param {unknown} longitude
+ * @returns {boolean}
+ */
+export function isValidCoordinatePair(latitude, longitude) {
+  return (
+    isFiniteNumber(/** @type {number} */ (latitude)) &&
+    isFiniteNumber(/** @type {number} */ (longitude)) &&
+    /** @type {number} */ (latitude) >= -90 &&
+    /** @type {number} */ (latitude) <= 90 &&
+    /** @type {number} */ (longitude) >= -180 &&
+    /** @type {number} */ (longitude) <= 180
+  );
+}
+
+/**
+ * Validate the instructor's confirmed lecture-hall reference.
+ * No accuracy field is required: map selection is deliberate, not measured.
+ * @param {{latitude?: number, longitude?: number, confirmedAt?: number}|null|undefined} location
+ * @param {{now?: number, maxConfirmationAgeMs?: number, futureToleranceMs?: number}} [options]
+ * @returns {{valid: boolean, reason: string|null, message: string, ageMs?: number}}
+ */
+export function validateLectureLocation(location, options = {}) {
+  const now = options.now ?? Date.now();
+  const maxAgeMs = options.maxConfirmationAgeMs ?? LECTURE_LOCATION.maxConfirmationAgeMs;
+  const futureToleranceMs = options.futureToleranceMs ?? LECTURE_LOCATION.futureToleranceMs;
+
+  if (!location || typeof location !== "object") {
+    return { valid: false, reason: LOCATION_REASONS.LECTURE_LOCATION_MISSING, message: "No lecture location was supplied." };
+  }
+  if (!isValidCoordinatePair(location.latitude, location.longitude)) {
+    return {
+      valid: false,
+      reason: LOCATION_REASONS.LECTURE_LOCATION_INVALID,
+      message: `Lecture location (${location.latitude}, ${location.longitude}) is outside the valid latitude/longitude ranges.`,
+    };
+  }
+  if (!isFiniteNumber(/** @type {number} */ (location.confirmedAt)) || /** @type {number} */ (location.confirmedAt) <= 0) {
+    return {
+      valid: false,
+      reason: LOCATION_REASONS.LECTURE_LOCATION_INVALID,
+      message: "The lecture location has no confirmation timestamp.",
+    };
+  }
+  const ageMs = now - /** @type {number} */ (location.confirmedAt);
+  if (ageMs < -futureToleranceMs) {
+    return {
+      valid: false,
+      reason: LOCATION_REASONS.LECTURE_LOCATION_INVALID,
+      message: "The lecture location confirmation timestamp is in the future.",
+    };
+  }
+  if (Math.max(ageMs, 0) > maxAgeMs) {
+    return {
+      valid: false,
+      reason: LOCATION_REASONS.LECTURE_LOCATION_STALE,
+      message: `The lecture location was confirmed ${(Math.max(ageMs, 0) / 60000).toFixed(0)} min ago; confirm it again (limit ${Math.round(maxAgeMs / 60000)} min).`,
+      ageMs: Math.max(ageMs, 0),
+    };
+  }
+  return { valid: true, reason: null, message: "Lecture location confirmed.", ageMs: Math.max(ageMs, 0) };
+}
+
+/**
+ * Decide a student submission against the confirmed lecture hall.
+ *
+ * This mirrors the order used by the n8n `Validate Submission` code node and is
+ * used by the tests to keep both implementations honest. The workflow remains
+ * the authority: it recalculates this from stored session state.
+ *
+ * Order: lecture reference -> reading validity/freshness -> student accuracy ->
+ * distance. Accuracy problems are never reported as being outside the radius.
+ *
+ * @param {{
+ *   lectureLocation?: {latitude: number, longitude: number, confirmedAt?: number}|null,
+ *   student?: Partial<LocationReading>|null,
+ *   now?: number,
+ *   radiusMeters?: number,
+ *   maxAccuracyMeters?: number
+ * }} input
+ * @returns {{
+ *   status: "ACCEPTED"|"REJECTED",
+ *   locationStatus: "VERIFIED"|string,
+ *   reason: string|null,
+ *   distanceMeters: number|null,
+ *   accuracyMeters: number|null
+ * }}
+ */
+export function assessStudentAttendance(input = {}) {
+  const now = input.now ?? Date.now();
+  const radiusMeters = input.radiusMeters ?? LOCATION_QUALITY.attendanceRadiusMeters;
+  const maxAccuracyMeters = input.maxAccuracyMeters ?? LOCATION_QUALITY.targetAccuracyMeters;
+
+  const rejected = (reason, distanceMeters = null, accuracyMeters = null) => ({
+    status: "REJECTED",
+    locationStatus: reason,
+    reason,
+    distanceMeters,
+    accuracyMeters,
+  });
+
+  // The lecture reference may arrive without confirmedAt when it was stored by
+  // an older session; only coordinates are mandatory here.
+  if (!input.lectureLocation) return rejected(LOCATION_REASONS.LECTURE_LOCATION_MISSING);
+  if (!isValidCoordinatePair(input.lectureLocation.latitude, input.lectureLocation.longitude)) {
+    return rejected(LOCATION_REASONS.LECTURE_LOCATION_INVALID);
+  }
+
+  if (!input.student) return rejected(LOCATION_REASONS.UNAVAILABLE);
+
+  const check = validateReading(input.student, { now });
+  if (!check.valid) {
+    const reason = check.reason === LOCATION_REASONS.STALE ? LOCATION_REASONS.STALE : check.reason || LOCATION_REASONS.INVALID;
+    return rejected(reason);
+  }
+
+  const accuracyMeters = /** @type {number} */ (input.student.accuracy);
+  if (accuracyMeters > maxAccuracyMeters) {
+    return rejected(LOCATION_REASONS.LOW_ACCURACY, null, accuracyMeters);
+  }
+
+  const distanceMeters = haversineMeters(input.lectureLocation, {
+    latitude: /** @type {number} */ (input.student.latitude),
+    longitude: /** @type {number} */ (input.student.longitude),
+  });
+  if (distanceMeters > radiusMeters) {
+    return rejected(LOCATION_REASONS.OUTSIDE_RADIUS, distanceMeters, accuracyMeters);
+  }
+
+  return { status: "ACCEPTED", locationStatus: "VERIFIED", reason: null, distanceMeters, accuracyMeters };
 }
 
 /**
