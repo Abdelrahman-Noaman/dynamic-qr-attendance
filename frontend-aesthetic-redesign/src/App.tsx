@@ -39,11 +39,15 @@ export default function App() {
     { label: "Token rotates", value: a.qr ? `every ${Math.round(a.qr.durationMs / 1000)}s` : "—" },
     { label: "Tokens served", value: hasKey ? String(a.tokensServed).padStart(2, "0") : "—" },
     { label: "Verified", value: a.qr ? String(a.locationStats.verified) : "—" },
+<<<<<<< HEAD
     { label: "Rejected", value: a.qr ? String(a.locationStats.rejected) : "—" },
     {
       label: "Lecture hall",
       value: a.lectureLocation ? formatCoordinates(a.lectureLocation) : "not confirmed",
     },
+=======
+    { label: "Outside radius", value: a.qr ? String(a.locationStats.outsideRadius) : "—" },
+>>>>>>> c04910a (Save local updates before syncing)
   ];
 
   return (
@@ -65,8 +69,13 @@ export default function App() {
                 // lecture-hall location on the map.
                 startDisabled={
                   a.startDisabled ||
+<<<<<<< HEAD
                   !a.lectureLocation ||
                   a.lectureLocationStatus !== "CONFIRMED"
+=======
+                  !a.instructorLocation ||
+                  a.instructorLocation.accuracy > MAX_GPS_ACCURACY_METERS
+>>>>>>> c04910a (Save local updates before syncing)
                 }
                 stopDisabled={a.stopDisabled}
                 starting={a.starting}
@@ -79,9 +88,16 @@ export default function App() {
                 lectureLocationStatus={a.lectureLocationStatus}
                 lectureLocationNotice={a.lectureLocationNotice}
                 attendanceRadiusMeters={a.attendanceRadiusMeters}
+<<<<<<< HEAD
                 maxAccuracyMeters={MAX_GPS_ACCURACY_METERS}
                 onConfirmLectureLocation={a.confirmLectureLocation}
                 onClearLectureLocation={a.clearLectureLocation}
+=======
+                maxAccuracyMeters={50}
+                reportedAccuracyMeters={a.instructorLocation?.accuracy ?? null}
+                locationQualityStatus={a.locationQualityStatus}
+                onShareLocation={a.shareLocation}
+>>>>>>> c04910a (Save local updates before syncing)
               />
             ) : (
               <KeyGate />

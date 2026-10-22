@@ -260,6 +260,7 @@ The dashboard and the student page share one policy module,
 matter who submits it. The **student** browser reading is acquired with:
 
 ```text
+<<<<<<< HEAD
 enableHighAccuracy: true
 maximumAge: 0                # cached fixes are refused
 timeout: 12000 ms per call   # browser hint
@@ -315,6 +316,24 @@ Only `ACCEPTED / VERIFIED` submissions are written to Google Sheets and emailed.
 Accuracy problems are never reported as being outside the radius, and the radius
 is never widened to compensate for a poor fix. The browser never decides the
 outcome.
+=======
+ATTENDANCE_RADIUS_METERS = 100
+MAX_GPS_ACCURACY_METERS = 50
+MAX_LOCATION_AGE_SECONDS = 30
+```
+
+Only fresh, accurate readings within the radius are `VERIFIED`. Under the
+default strict rejection policy, outside-radius attempts are recorded as `Needs
+Review`; low-accuracy readings follow the instructor quality policy, while
+stale, invalid, or unavailable readings are rejected. The browser never
+decides the final outcome.
+
+The instructor quality policy is configured in the n8n `Create Session` Code
+node, not trusted from the browser, and is separate from the attendance radius:
+strict rejection allows a poor-quality instructor reading to start a session as
+`REJECTED`, but no submission from that session can be location-verified.
+`REJECT` prevents session start until the reading meets the quality target.
+>>>>>>> c04910a (Save local updates before syncing)
 
 #### 6. Duplicate Prevention
 
@@ -396,11 +415,12 @@ Once the submission passes validation, n8n records the attendance in Google Shee
 Example row format:
 
 ```text
-Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status | Instructor Latitude | Instructor Longitude | Student Latitude | Student Longitude | Distance (m) | Instructor GPS Accuracy (m) | Student GPS Accuracy (m) | Location Status | Location Timestamp | Review Status
+Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status | Instructor Latitude | Instructor Longitude | Student Latitude | Student Longitude | Distance (m) | Instructor GPS Accuracy (m) | Student GPS Accuracy (m) | Location Status | Location Timestamp | Legacy review column (unused)
 ```
 
 ### 📍 Location Verification
 
+<<<<<<< HEAD
 The professor dashboard embeds a **dark Leaflet map** with place search, a
 draggable pin, live latitude/longitude readout and a **Confirm Lecture Location**
 button plus a confirmation indicator. `Start` is disabled until a valid lecture
@@ -410,6 +430,12 @@ laptop's (possibly very coarse) fix, and it explicitly says that a device fix is
 not proof of the room. The student page requests location only after the QR
 passes `/dqr-check`, shows each attempt's reported accuracy, and refuses to
 submit when no reading meets the 50 m target. Student geolocation requires
+=======
+The professor dashboard provides a **Share my location** control, accuracy,
+the configured radius, and live verified/outside-radius/rejection counts. The
+student page requests location only after the QR passes `/dqr-check` and
+provides a retry path when permission or services fail. Geolocation requires
+>>>>>>> c04910a (Save local updates before syncing)
 HTTPS (except localhost) and explicit browser/device permission.
 
 **Map providers:** tiles are CARTO's dark basemap over OpenStreetMap data and
@@ -677,7 +703,7 @@ professor-dashboard.html?key=YOUR_PROF_KEY
 Create a spreadsheet containing an `Attendance` sheet with the following headers:
 
 ```text
-Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status | Instructor Latitude | Instructor Longitude | Student Latitude | Student Longitude | Distance (m) | Instructor GPS Accuracy (m) | Student GPS Accuracy (m) | Location Status | Location Timestamp | Review Status
+Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status | Instructor Latitude | Instructor Longitude | Student Latitude | Student Longitude | Distance (m) | Instructor GPS Accuracy (m) | Student GPS Accuracy (m) | Location Status | Location Timestamp | Legacy review column (unused)
 ```
 
 If student IDs can contain leading zeros, format the **Student ID** column as **Plain text**.
@@ -729,7 +755,11 @@ The system should be tested against both successful and invalid flows.
 | Lecture location confirmed on the map | ✅ Session start allowed (no GPS accuracy gate) |
 | Lecture location confirmed > 60 min ago | ❌ `LECTURE_LOCATION_STALE` |
 | Student within 100 m with accuracy ≤ 50 m | ✅ `VERIFIED` |
+<<<<<<< HEAD
 | Student outside radius | ❌ `REJECTED / OUTSIDE_RADIUS`, nothing recorded |
+=======
+| Student outside radius | ⚠️ `Rejected`, no verification email |
+>>>>>>> c04910a (Save local updates before syncing)
 | Accuracy above 50 m | ❌ `LOW_ACCURACY` |
 | Reading older than 30 seconds | ❌ `STALE_LOCATION` |
 | Invalid coordinates | ❌ `INVALID_LOCATION` |
@@ -754,6 +784,7 @@ The current prototype also has several intentional limitations:
 - n8n workflow static data for session state
 - No strong physical-presence verification
 - Browser geolocation can be spoofed and does not prove presence
+<<<<<<< HEAD
 - `enableHighAccuracy` only requests the platform's best fix; reported accuracy
   remains an estimate and cannot be guaranteed, especially indoors
 - The lecture-hall reference is a map pin chosen by the professor; it is not
@@ -761,6 +792,10 @@ The current prototype also has several intentional limitations:
   wrong room (checking the pin is an operational control)
 - Rejected attempts are not written to Sheets, so the audit trail there only
   contains verified attendance
+=======
+- The default strict rejection policy records outside-radius attempts but does not yet
+  provide a secure instructor approval endpoint
+>>>>>>> c04910a (Save local updates before syncing)
 - n8n workflow static data is not transaction-safe under multi-instance
   concurrency; use a database-backed session and uniqueness constraint at scale
 

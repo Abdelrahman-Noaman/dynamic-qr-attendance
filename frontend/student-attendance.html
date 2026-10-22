@@ -304,12 +304,18 @@ const MESSAGES = {
   LOCATION_UNAVAILABLE: "Your location could not be retrieved. Check location services and retry.",
   LOCATION_TIMEOUT: "Location request timed out. Please retry.",
   INVALID_LOCATION: "The browser returned invalid location data. Please retry.",
+<<<<<<< HEAD
   LOW_ACCURACY: `Your location reading is too imprecise. The limit is ${LOCATION_QUALITY.targetAccuracyMeters} m; move outdoors or closer to a window and retry.`,
   STALE_LOCATION: "The browser returned an old location reading. Please retry for a fresh one.",
   OUTSIDE_RADIUS: `You are outside the ${LOCATION_QUALITY.attendanceRadiusMeters} m attendance area around the lecture hall. This attempt was rejected.`,
   LECTURE_LOCATION_INVALID: "This session has no valid lecture-hall location. Ask your instructor to confirm the lecture location again.",
   LECTURE_LOCATION_STALE: "This session's lecture-hall location is out of date. Ask your instructor to confirm it again.",
   LECTURE_LOCATION_MISSING: "This session has no lecture-hall location set. Ask your instructor to confirm it before you scan again.",
+=======
+  LOW_ACCURACY: "Your location is too inaccurate. Move outdoors or closer to the venue and retry.",
+  STALE_LOCATION: "Your location reading is too old. Please retry.",
+  OUTSIDE_RADIUS: "Your location is outside the attendance area. This attempt was not verified.",
+>>>>>>> c04910a (Save local updates before syncing)
 };
 
 function friendlyError(reason) {
@@ -521,6 +527,7 @@ async function submitForm(e) {
       return false;
     }
 
+<<<<<<< HEAD
     // Only verified attendance reaches this point: the workflow rejects
     // outside-radius and unreliable readings with an explicit reason instead
     // of recording a review state.
@@ -537,6 +544,8 @@ async function submitForm(e) {
       `<span class="status-tag status-tag-ok">ACCEPTED / VERIFIED</span><br>` +
       [distanceText, accuracyText].filter(Boolean).join("<br>") +
       `<br>A confirmation email is on the way. You can close this page.`;
+=======
+>>>>>>> c04910a (Save local updates before syncing)
     showView("viewSuccess");
 
   } catch (e) {

@@ -16,7 +16,7 @@ flowchart TD
     T -->|POST dqr-submit + one-time location| SV[Submission validation]
     SV --> L[Haversine and freshness checks]
     L --> D[Duplicate check]
-    D -->|Verified or review attempt| G[Google Sheets]
+    D -->|Verified or rejected attempt| G[Google Sheets]
     G -->|Verified only| M[Gmail confirmation]
 ```
 
@@ -79,6 +79,7 @@ After the success response is prepared, the Gmail node sends a confirmation emai
 
 The browser is untrusted. It can submit arbitrary form values and tickets, so the n8n workflow verifies the professor key, QR session/token, HMAC ticket signature, ticket expiry, session status, required fields, email shape, device ID, duplicate status, coordinate ranges, accuracy, freshness, and distance before writing to Sheets. The device ID is a persistent browser-storage identifier, not a tamper-proof hardware fingerprint. Location readings are quality signals rather than proof of physical presence and can be spoofed.
 
+<<<<<<< HEAD
 Student location is captured only during the attendance flow, not continuously.
 There is no review state: an attempt is either `ACCEPTED / VERIFIED` (written to
 Sheets, confirmation email) or `REJECTED / <reason>` (nothing recorded).
@@ -91,5 +92,10 @@ reference is only as trustworthy as the professor's pin placement.
 The student page loads `frontend/location-core.js` as an ES module, so it must
 be served over HTTP(S) together with its sibling module file; opening the page
 from the filesystem will not initialise.
+=======
+Location is captured only during the start and attendance flows, not continuously.
+The default policy is strict rejection: outside-radius attempts are auditable but are
+not marked verified and do not receive a verified-attendance email.
+>>>>>>> c04910a (Save local updates before syncing)
 
 The professor key and HMAC secret are placeholders in the public export. Configure private values in the n8n workflow before activation.

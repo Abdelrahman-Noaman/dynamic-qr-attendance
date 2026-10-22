@@ -10,6 +10,7 @@ import {
   type LectureLocation,
 } from "../utils/lectureLocation";
 
+<<<<<<< HEAD
 /** Student-side accuracy ceiling and attendance radius (server-owned values). */
 export const MAX_GPS_ACCURACY_METERS = LOCATION_QUALITY.targetAccuracyMeters;
 export const ATTENDANCE_RADIUS_METERS = LOCATION_QUALITY.attendanceRadiusMeters;
@@ -20,6 +21,10 @@ export const ATTENDANCE_RADIUS_METERS = LOCATION_QUALITY.attendanceRadiusMeters;
  */
 export type LectureLocationSource = "map";
 export type LectureLocationStatus = "CONFIRMED" | "UNCONFIRMED";
+=======
+export const MAX_GPS_ACCURACY_METERS = 50;
+export type LocationQualityStatus = "VERIFIED" | "REJECTED";
+>>>>>>> c04910a (Save local updates before syncing)
 
 export type Tone = "idle" | "running" | "stopped" | "error";
 
@@ -39,7 +44,10 @@ export interface QrPayload {
   locationStats: {
     verified: number;
     outsideRadius: number;
+<<<<<<< HEAD
     rejected: number;
+=======
+>>>>>>> c04910a (Save local updates before syncing)
   };
   /** The reference point stored in the workflow for the live session. */
   lectureLocation?: { latitude: number; longitude: number; source?: string; confirmedAt?: number } | null;
@@ -55,7 +63,10 @@ interface ApiResponse {
   expiresInMs?: number;
   attendanceRadiusMeters?: number;
   locationStats?: QrPayload["locationStats"];
+<<<<<<< HEAD
   lectureLocation?: QrPayload["lectureLocation"];
+=======
+>>>>>>> c04910a (Save local updates before syncing)
 }
 
 class ApiRequestError extends Error {
@@ -124,7 +135,10 @@ export function useAttendance(key: string | null) {
   const [locationStats, setLocationStats] = useState<QrPayload["locationStats"]>({
     verified: 0,
     outsideRadius: 0,
+<<<<<<< HEAD
     rejected: 0,
+=======
+>>>>>>> c04910a (Save local updates before syncing)
   });
   const [attendanceRadiusMeters, setAttendanceRadiusMeters] = useState(100);
 
@@ -183,6 +197,7 @@ export function useAttendance(key: string | null) {
       setLectureDisabled(true);
       setLecture(data.lecture || "Lecture");
       setLocationStats(data.locationStats || locationStats);
+<<<<<<< HEAD
       setAttendanceRadiusMeters(data.attendanceRadiusMeters || ATTENDANCE_RADIUS_METERS);
       // Keep the map in sync with the reference the server is actually using
       // (e.g. after a page reload mid-session).
@@ -198,6 +213,9 @@ export function useAttendance(key: string | null) {
         );
       }
 
+=======
+      setAttendanceRadiusMeters(data.attendanceRadiusMeters || 100);
+>>>>>>> c04910a (Save local updates before syncing)
       showQR(data);
       setStatus(`Running — ${data.lecture || "Lecture"}`, "running");
 
@@ -285,6 +303,7 @@ export function useAttendance(key: string | null) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
+<<<<<<< HEAD
   // ---- Lecture hall reference (professor-selected on the map) ----
   // The laptop's own GPS is deliberately not the reference: ±150 m is common
   // indoors and can never satisfy a 50 m quality gate. The professor confirms a
@@ -299,6 +318,71 @@ export function useAttendance(key: string | null) {
     saveLectureLocation(confirmed);
     setLectureLocationNotice(
       `Lecture location confirmed · ${formatCoordinates(confirmed)}. This is the lecture hall, not the professor's device position.`,
+=======
+  // ---- Start ----
+  const shareLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setInstructorLocation(null);
+      setLocationQualityStatus("REJECTED");
+      setLocationStatus("Location services are unavailable in this browser.");
+      return;
+    }
+    setLocationBusy(true);
+    setLocationStatus("Requesting your location…");
+    navigator.geolocation.getCurrentPosition(
+      ({ coords, timestamp }) => {
+        const values = [coords.latitude, coords.longitude, coords.accuracy];
+        if (
+          values.some((value) => !Number.isFinite(value)) ||
+          coords.latitude < -90 ||
+          coords.latitude > 90 ||
+          coords.longitude < -180 ||
+          coords.longitude > 180 ||
+          coords.accuracy <= 0
+        ) {
+          setInstructorLocation(null);
+          setLocationQualityStatus("REJECTED");
+          setLocationStatus("The browser returned invalid location data. Please retry.");
+          setLocationBusy(false);
+          return;
+        }
+        if (coords.accuracy > MAX_GPS_ACCURACY_METERS) {
+          setInstructorLocation(null);
+          setLocationQualityStatus("REJECTED");
+          setLocationStatus(
+            `REJECTED · LOW_ACCURACY · ±${Math.round(coords.accuracy)} m reported; must be ≤${MAX_GPS_ACCURACY_METERS} m. Move outdoors and retry.`
+          );
+          setLocationBusy(false);
+          return;
+        }
+        setInstructorLocation({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy: coords.accuracy,
+          timestamp: timestamp || Date.now(),
+        });
+        setLocationQualityStatus("VERIFIED");
+        setLocationStatus(
+          `Location ready · accuracy ±${Math.round(coords.accuracy)} m (quality limit ≤${MAX_GPS_ACCURACY_METERS} m)`
+        );
+        setLocationBusy(false);
+      },
+      (error) => {
+        setInstructorLocation(null);
+        setLocationQualityStatus("REJECTED");
+        const message =
+          error.code === error.PERMISSION_DENIED
+            ? "Location permission was denied. Allow it in the browser and retry."
+            : error.code === error.POSITION_UNAVAILABLE
+              ? "Location services are unavailable. Check device settings and retry."
+              : error.code === error.TIMEOUT
+                ? "Location request timed out. Please retry."
+                : "Unable to retrieve your location. Please retry.";
+        setLocationStatus(message);
+        setLocationBusy(false);
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+>>>>>>> c04910a (Save local updates before syncing)
     );
   }, []);
 
@@ -320,11 +404,14 @@ export function useAttendance(key: string | null) {
       setStatus("Confirm the lecture hall on the map before starting.", "error");
       return;
     }
+<<<<<<< HEAD
     if (!isLectureLocationFresh(lectureLocation)) {
       setStatus("The confirmed lecture location is stale — confirm it again before starting.", "error");
       return;
     }
 
+=======
+>>>>>>> c04910a (Save local updates before syncing)
     setStartDisabled(true);
     setStarting(true);
     setStatus("Starting…", "running");
@@ -333,10 +420,17 @@ export function useAttendance(key: string | null) {
       const data = await apiPost("dqr-start", {
         key,
         lecture: lecture.trim() || "Lecture",
+<<<<<<< HEAD
         instructorLatitude: String(lectureLocation.latitude),
         instructorLongitude: String(lectureLocation.longitude),
         instructorLocationSource: "map",
         instructorLocationConfirmedAt: String(lectureLocation.confirmedAt),
+=======
+        instructorLatitude: String(instructorLocation.latitude),
+        instructorLongitude: String(instructorLocation.longitude),
+        instructorAccuracy: String(instructorLocation.accuracy),
+        instructorLocationTimestamp: String(instructorLocation.timestamp),
+>>>>>>> c04910a (Save local updates before syncing)
       });
 
       if (!data.ok) {
@@ -369,7 +463,11 @@ export function useAttendance(key: string | null) {
       setStarting(false);
       setStopDisabled(false);
       setLectureDisabled(true);
+<<<<<<< HEAD
       setStatus("Session started — reference: the confirmed lecture hall", "running");
+=======
+      setStatus("Session started", "running");
+>>>>>>> c04910a (Save local updates before syncing)
       await fetchQR();
     } catch (error) {
       setStatus(
@@ -384,7 +482,11 @@ export function useAttendance(key: string | null) {
   }, [
     key,
     lecture,
+<<<<<<< HEAD
     lectureLocation,
+=======
+    instructorLocation,
+>>>>>>> c04910a (Save local updates before syncing)
     fetchQR,
     setRunning,
     setStatus,
