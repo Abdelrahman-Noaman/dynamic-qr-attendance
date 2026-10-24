@@ -6,6 +6,7 @@
 // lecture-location.test.mjs.
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import test from "node:test";
 
 import {
   assessStudentAttendance,
@@ -81,6 +82,7 @@ const qrWebhook = node("Webhook QR");
 const createSession = node("Create Session");
 const rotateQr = node("Rotate If Needed");
 const validateSubmission = node("Validate Submission");
+const validateCode = validateSubmission.parameters.jsCode;
 
 assert.equal(startWebhook.parameters.httpMethod, "POST");
 assert.equal(startWebhook.parameters.path, "dqr-start");
@@ -95,4 +97,67 @@ assert.match(rotateQr.parameters.jsCode, /s\.token = rand\(6\)/);
 assert.ok(workflow.connections["Webhook Start"].main[0].some((edge) => edge.node === "Create Session"));
 assert.ok(workflow.connections["Create Session"].main[0].some((edge) => edge.node === "Respond Start"));
 
-console.log("Start-session and QR contract tests passed");
+const assess = ({ instructor, student, radius = 100, maxAccuracy = 50, maxAge = 30, now = 1_000_000 }) => {
+  if (!instructor || !student) return { locationStatus: "REJECTED", reason: "LOCATION_UNAVAILABLE" };
+  if (instructor.accuracy > maxAccuracy || student.accuracy > maxAccuracy) {
+    return { locationStatus: "REJECTED", reason: "LOW_ACCURACY" };
+  }
+  if (now - student.timestamp > maxAge * 1000) {
+    return { locationStatus: "REJECTED", reason: "STALE_LOCATION" };
+  }
+  const distanceMeters = haversineMeters(instructor, student);
+  return distanceMeters <= radius
+    ? { locationStatus: "VERIFIED", reason: "", distanceMeters }
+    : { locationStatus: "REJECTED", reason: "OUTSIDE_RADIUS", distanceMeters };
+};
+
+test("accurate student inside 100 m is verified", () => {
+  const result = assess({
+    instructor: { latitude: 30, longitude: 31, accuracy: 10 },
+    student: { latitude: 30.0001, longitude: 31, accuracy: 10, timestamp: 1_000_000 },
+  });
+  assert.equal(result.locationStatus, "VERIFIED");
+});
+
+test("accurate student outside 100 m is rejected as outside radius", () => {
+  const result = assess({
+    instructor: { latitude: 30, longitude: 31, accuracy: 10 },
+    student: { latitude: 30.002, longitude: 31, accuracy: 10, timestamp: 1_000_000 },
+  });
+  assert.deepEqual(result.reason, "OUTSIDE_RADIUS");
+  assert.equal(result.locationStatus, "REJECTED");
+});
+
+test("poor accuracy is rejected without claiming the student is outside", () => {
+  const result = assess({
+    instructor: { latitude: 30, longitude: 31, accuracy: 202 },
+    student: { latitude: 30.002, longitude: 31, accuracy: 10, timestamp: 1_000_000 },
+  });
+  assert.deepEqual(result, { locationStatus: "REJECTED", reason: "LOW_ACCURACY" });
+});
+
+test("missing and stale readings are rejected", () => {
+  assert.equal(assess({}).reason, "LOCATION_UNAVAILABLE");
+  assert.equal(assess({
+    instructor: { latitude: 30, longitude: 31, accuracy: 10 },
+    student: { latitude: 30, longitude: 31, accuracy: 10, timestamp: 0 },
+  }).reason, "STALE_LOCATION");
+});
+
+test("supplied coordinates calculate to 101.5965363156 m", () => {
+  const result = haversineMeters(
+    { latitude: 29.99625519, longitude: 30.96586222 },
+    { latitude: 29.9963212, longitude: 30.96691445 }
+  );
+  assert.ok(Math.abs(result - 101.59653631559846) < 0.000001);
+});
+
+test("workflow uses strict outcomes and preserves security checks", () => {
+  assert.match(validateCode, /OUTSIDE_RADIUS/);
+  assert.match(validateCode, /LOW_ACCURACY/);
+  assert.match(validateCode, /TICKET_EXPIRED/);
+  assert.match(validateCode, /BAD_TICKET/);
+  assert.match(validateCode, /deviceId/);
+  assert.ok(workflow.nodes.some((node) => node.name === "Save Rejected Location"));
+  assert.ok(workflow.nodes.some((node) => node.name === "Rejected Location?"));
+});

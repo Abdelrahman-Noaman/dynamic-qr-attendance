@@ -2,7 +2,7 @@
 // ★ CONFIGURE THESE TWO CONSTANTS ★
 // ============================================================
 // Your n8n production webhook base URL (no trailing slash)
-export const N8N = "https://no3man.app.n8n.cloud/webhook";
+export const N8N = "https://no3mann.app.n8n.cloud/webhook";
 
 // Where student-attendance.html is hosted
 export const STUDENT_URL =
@@ -11,16 +11,16 @@ export const STUDENT_URL =
 // ============================================================
 // Map + geocoding (optional overrides, no API keys required)
 // ============================================================
-// Tiles: any XYZ raster tile server works. The default is CARTO's dark basemap
-// so the map matches the dashboard. OpenStreetMap's own tiles also work:
-//   VITE_MAP_TILE_URL="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+// Tiles: any XYZ raster tile server works. The default is OpenStreetMap's
+// public tile service. CARTO or another provider can be configured with:
+//   VITE_MAP_TILE_URL="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
 // Respect the tile provider's usage policy and keep the attribution visible.
 export const MAP_TILE_URL =
-  import.meta.env.VITE_MAP_TILE_URL ?? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+  import.meta.env.VITE_MAP_TILE_URL ?? "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
 export const MAP_TILE_ATTRIBUTION =
   import.meta.env.VITE_MAP_ATTRIBUTION ??
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 // Geocoding: Nominatim (OpenStreetMap) needs no API key. Point this at your own
 // Nominatim/Photon instance if you expect heavy use, and respect the 1 req/s

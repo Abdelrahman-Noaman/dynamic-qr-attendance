@@ -16,7 +16,7 @@ flowchart TD
     T -->|POST dqr-submit + one-time location| SV[Submission validation]
     SV --> L[Haversine and freshness checks]
     L --> D[Duplicate check]
-    D -->|Verified or review attempt| G[Google Sheets]
+    D -->|Verified or rejected attempt| G[Google Sheets]
     G -->|Verified only| M[Gmail confirmation]
 ```
 

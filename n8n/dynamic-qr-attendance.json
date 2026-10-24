@@ -504,8 +504,7 @@
             "Instructor GPS Accuracy (m)": "={{ $('Validate Submission').first().json.instructorAccuracy }}",
             "Student GPS Accuracy (m)": "={{ $('Validate Submission').first().json.studentAccuracy }}",
             "Location Status": "={{ $('Validate Submission').first().json.locationStatus }}",
-            "Location Timestamp": "={{ $('Validate Submission').first().json.locationTimestamp }}",
-            "Review Status": "={{ $('Validate Submission').first().json.reviewStatus }}"
+            "Location Timestamp": "={{ $('Validate Submission').first().json.locationTimestamp }}"
           },
           "matchingColumns": [],
           "schema": [
@@ -656,15 +655,6 @@
             {
               "id": "Location Timestamp",
               "displayName": "Location Timestamp",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
-              "id": "Review Status",
-              "displayName": "Review Status",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -831,12 +821,253 @@
         "options": {}
       },
       "id": "f20a6ce2-1f0e-44b7-bf29-48f0b4f4b21a",
-      "name": "Verified Location?",
+      "name": "Verified Attendance?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
         2336,
         1104
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1W4Q8HrjGveP1jrjUzwho9aO7nRPPPDwwhfW7C1fdbD0",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Attendance",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Session ID": "={{ $('Validate Submission').first().json.sessionId }}",
+            "Student ID": "={{ $('Validate Submission').first().json.studentId }}",
+            "Device ID": "={{ $('Validate Submission').first().json.deviceId }}",
+            "Student Name": "={{ $('Validate Submission').first().json.name }}",
+            "Email": "={{ $('Validate Submission').first().json.email }}",
+            "Attendance Time": "={{ $now.toFormat('yyyy-MM-dd HH:mm:ss') }}",
+            "Token": "={{ $('Validate Submission').first().json.token }}",
+            "Status": "Rejected",
+            "Instructor Latitude": "={{ $('Validate Submission').first().json.instructorLatitude }}",
+            "Instructor Longitude": "={{ $('Validate Submission').first().json.instructorLongitude }}",
+            "Student Latitude": "={{ $('Validate Submission').first().json.studentLatitude }}",
+            "Student Longitude": "={{ $('Validate Submission').first().json.studentLongitude }}",
+            "Distance (m)": "={{ $('Validate Submission').first().json.distanceMeters }}",
+            "Instructor GPS Accuracy (m)": "={{ $('Validate Submission').first().json.instructorAccuracy }}",
+            "Student GPS Accuracy (m)": "={{ $('Validate Submission').first().json.studentAccuracy }}",
+            "Location Status": "={{ $('Validate Submission').first().json.locationStatus }}",
+            "Location Timestamp": "={{ $('Validate Submission').first().json.locationTimestamp }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Session ID",
+              "displayName": "Session ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Student ID",
+              "displayName": "Student ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Device ID",
+              "displayName": "Device ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Student Name",
+              "displayName": "Student Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Attendance Time",
+              "displayName": "Attendance Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Token",
+              "displayName": "Token",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Instructor Latitude",
+              "displayName": "Instructor Latitude",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Instructor Longitude",
+              "displayName": "Instructor Longitude",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Student Latitude",
+              "displayName": "Student Latitude",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Student Longitude",
+              "displayName": "Student Longitude",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Distance (m)",
+              "displayName": "Distance (m)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Instructor GPS Accuracy (m)",
+              "displayName": "Instructor GPS Accuracy (m)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Student GPS Accuracy (m)",
+              "displayName": "Student GPS Accuracy (m)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Location Status",
+              "displayName": "Location Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Location Timestamp",
+              "displayName": "Location Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "save-rejected-location",
+      "name": "Save Rejected Location",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1824,
+        1104
+      ],
+      "retryOnFail": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0FjaveI9h7tDArdS",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ ['OUTSIDE_RADIUS', 'LOW_ACCURACY', 'STALE_LOCATION', 'LOCATION_UNAVAILABLE', 'INVALID_LOCATION'].includes($json.reason) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "rejected-location-check",
+      "name": "Rejected Location?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        1100
       ]
     }
   ],
@@ -1014,7 +1245,7 @@
         ],
         [
           {
-            "node": "Respond Submit Error",
+            "node": "Rejected Location?",
             "type": "main",
             "index": 0
           }
@@ -1065,7 +1296,7 @@
       "main": [
         [
           {
-            "node": "Verified Location?",
+            "node": "Verified Attendance?",
             "type": "main",
             "index": 0
           }
@@ -1101,7 +1332,7 @@
         ]
       ]
     },
-    "Verified Location?": {
+    "Verified Attendance?": {
       "main": [
         [
           {
@@ -1111,6 +1342,35 @@
           }
         ],
         []
+      ]
+    },
+    "Rejected Location?": {
+      "main": [
+        [
+          {
+            "node": "Save Rejected Location",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Submit Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Rejected Location": {
+      "main": [
+        [
+          {
+            "node": "Respond Submit Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },

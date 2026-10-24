@@ -168,7 +168,7 @@ test("keyed console shows the session, the hall and the blockers that stop Start
   });
 
   const { document } = window;
-  assert.equal(calls[0].url, "https://no3man.app.n8n.cloud/webhook/dqr-qr?key=test-key-123");
+  assert.equal(calls[0].url, "https://no3mann.app.n8n.cloud/webhook/dqr-qr?key=test-key-123");
   assert.match(document.body.textContent, /Lecture hall/i);
   assert.match(document.body.textContent, /Confirmed/i);
   assert.match(document.body.textContent, /Before you can start/i);

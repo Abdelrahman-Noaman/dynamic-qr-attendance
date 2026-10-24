@@ -396,7 +396,7 @@ Once the submission passes validation, n8n records the attendance in Google Shee
 Example row format:
 
 ```text
-Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status | Instructor Latitude | Instructor Longitude | Student Latitude | Student Longitude | Distance (m) | Instructor GPS Accuracy (m) | Student GPS Accuracy (m) | Location Status | Location Timestamp | Review Status
+Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status | Instructor Latitude | Instructor Longitude | Student Latitude | Student Longitude | Distance (m) | Instructor GPS Accuracy (m) | Student GPS Accuracy (m) | Location Status | Location Timestamp | Legacy review column (unused)
 ```
 
 ### 📍 Location Verification
@@ -414,8 +414,8 @@ passes `/dqr-check`, shows each attempt's reported accuracy, and refuses to
 submit when no reading meets the 50 m target. Student geolocation requires
 HTTPS (except localhost) and explicit browser/device permission.
 
-**Map providers:** tiles are CARTO's dark basemap over OpenStreetMap data and
-geocoding is OpenStreetMap Nominatim. Neither needs an API key, so nothing
+**Map providers:** tiles default to OpenStreetMap and geocoding is OpenStreetMap
+Nominatim. Neither needs an API key, so nothing
 secret ships in the bundle. Override them with `VITE_MAP_TILE_URL`,
 `VITE_MAP_ATTRIBUTION`, `VITE_GEOCODE_URL` and `VITE_REVERSE_GEOCODE_URL` (for
 example your own Nominatim/Photon instance, or a self-hosted tile server) if you
@@ -656,12 +656,12 @@ frontend/student-attendance.html
 
 Also configure the student page URL used inside the professor dashboard.
 
-The lecture-hall map needs **no API key**: it uses CARTO dark tiles over
-OpenStreetMap with Nominatim place search. Optional overrides live in
+The lecture-hall map needs **no API key**: it uses OpenStreetMap tiles with
+Nominatim place search. Optional overrides live in
 `frontend-aesthetic-redesign/.env` (see `.env.example`):
 
 ```text
-VITE_MAP_TILE_URL      XYZ tile template (default: CARTO dark_all)
+VITE_MAP_TILE_URL      XYZ tile template (default: OpenStreetMap)
 VITE_MAP_ATTRIBUTION   attribution HTML shown on the map
 VITE_GEOCODE_URL       Nominatim-compatible search endpoint
 VITE_REVERSE_GEOCODE_URL  reverse geocoding endpoint
@@ -725,7 +725,7 @@ what failed and when it will retry.
 Create a spreadsheet containing an `Attendance` sheet with the following headers:
 
 ```text
-Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status | Instructor Latitude | Instructor Longitude | Student Latitude | Student Longitude | Distance (m) | Instructor GPS Accuracy (m) | Student GPS Accuracy (m) | Location Status | Location Timestamp | Review Status
+Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status | Instructor Latitude | Instructor Longitude | Student Latitude | Student Longitude | Distance (m) | Instructor GPS Accuracy (m) | Student GPS Accuracy (m) | Location Status | Location Timestamp | Legacy review column (unused)
 ```
 
 If student IDs can contain leading zeros, format the **Student ID** column as **Plain text**.

@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
-import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import {
+  AttributionControl,
+  MapContainer,
+  Marker,
+  TileLayer,
+  useMap,
+  useMapEvents,
+} from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { acquireLocation } from "../../../frontend/location-core.js";
 import {
@@ -188,8 +195,12 @@ export function LocationPicker({ value, onConfirm, onClear, radiusMeters, maxAcc
             center={pin ? [pin.latitude, pin.longitude] : [MAP_WORLD_VIEW.latitude, MAP_WORLD_VIEW.longitude]}
             zoom={pin ? MAP_PLACE_ZOOM : MAP_WORLD_VIEW.zoom}
             scrollWheelZoom
+            attributionControl={false}
             className="h-full w-full"
           >
+            <AttributionControl
+              prefix='<a href="https://leafletjs.com/" target="_blank" rel="noopener noreferrer">Leaflet</a>'
+            />
             <TileLayer url={MAP_TILE_URL} attribution={MAP_TILE_ATTRIBUTION} />
             <ClickToPlace onPick={pick} />
             <Recenter target={focus} />
