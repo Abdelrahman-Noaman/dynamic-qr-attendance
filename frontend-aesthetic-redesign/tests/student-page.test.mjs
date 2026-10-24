@@ -12,7 +12,7 @@ const html = fs.readFileSync(new URL("../../frontend/student-attendance.html", i
 const moduleSource = html.match(/<script type="module">([\s\S]*?)<\/script>/)?.[1];
 assert.ok(moduleSource, "student page must expose one module script");
 
-const N8N = "https://no3mann.app.n8n.cloud/webhook";
+const N8N = "https://no3man.app.n8n.cloud/webhook";
 
 function makeHarness({ geolocationSteps, submitResponse }) {
   const elements = new Map();

@@ -404,10 +404,8 @@ Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | T
 The professor dashboard embeds a **dark Leaflet map** with place search, a
 draggable pin, live latitude/longitude readout and a **Confirm Lecture Location**
 button plus a confirmation indicator. `Start` is disabled until a valid lecture
-location is confirmed, and the confirmed hall is shown in the control panel.
-The map loads only when you ask for it; a hall confirmed more than 60 minutes ago
-shows as **Needs reconfirming** and can be re-confirmed at the same pin in one
-click or moved on the map. A secondary "Centre on my device" button can centre the map on the
+location is confirmed, and the confirmed hall is shown on the map and in the
+stats strip. A secondary "Centre on my device" button can centre the map on the
 laptop's (possibly very coarse) fix, and it explicitly says that a device fix is
 not proof of the room. The student page requests location only after the QR
 passes `/dqr-check`, shows each attempt's reported accuracy, and refuses to
@@ -415,8 +413,8 @@ submit when no reading meets the 50 m target. Student geolocation requires
 HTTPS (except localhost) and explicit browser/device permission.
 
 **Map providers:** tiles default to OpenStreetMap and geocoding is OpenStreetMap
-Nominatim. Neither needs an API key, so nothing
-secret ships in the bundle. Override them with `VITE_MAP_TILE_URL`,
+Nominatim. Neither needs an API key, so nothing secret ships in the bundle.
+Override them with `VITE_MAP_TILE_URL`,
 `VITE_MAP_ATTRIBUTION`, `VITE_GEOCODE_URL` and `VITE_REVERSE_GEOCODE_URL` (for
 example your own Nominatim/Photon instance, or a self-hosted tile server) if you
 expect heavy use; respect the public services' usage policies and keep the
@@ -570,7 +568,7 @@ The interesting engineering work is not simply connecting Google Sheets and Gmai
 | Layer | Technologies |
 |---|---|
 | **Automation & Backend** | n8n · HTTP Webhooks · Workflow Static Data · JavaScript Code Nodes |
-| **Frontend** | React 19 · TypeScript · Vite · Tailwind CSS · Leaflet · qrcode-generator |
+| **Frontend** | HTML · CSS · Vanilla JavaScript · QRCode.js |
 | **Google Workspace** | Google Sheets API · Gmail API · OAuth2 |
 | **Security** | HMAC-SHA256 · Short-lived tokens · Signed tickets · Server-side validation · Session-based access control |
 
@@ -588,18 +586,9 @@ dynamic-qr-attendance/
 │   └── dynamic-qr-attendance.json
 │
 ├── frontend/
-│   ├── professor-dashboard.html      # built single-file console bundle
-│   ├── student-attendance.html       # student check-in page
+│   ├── professor-dashboard.html      # built dashboard bundle (map included)
+│   ├── student-attendance.html
 │   └── location-core.js              # shared acquisition, validation, decision
-│
-├── frontend-aesthetic-redesign/      # console source (React 19 + Vite + Tailwind)
-│   ├── src/
-│   │   ├── api/                      # webhook client (timeouts, parsing)
-│   │   ├── components/               # session, hall, attendance, projector views
-│   │   ├── hooks/                    # session state + hash route
-│   │   └── index.css                 # design tokens and base styles
-│   ├── tests/                        # policy, workflow, student and UI tests
-│   └── dist/index.html               # build output copied to frontend/
 │
 └── docs/
     │
@@ -676,43 +665,6 @@ Open the professor page using:
 ```text
 professor-dashboard.html?key=YOUR_PROF_KEY
 ```
-
-### 3b. Working on the console source
-
-`frontend/professor-dashboard.html` is generated. Edit the source in
-`frontend-aesthetic-redesign/` and rebuild:
-
-```bash
-cd frontend-aesthetic-redesign
-npm install
-npm run dev            # local dev server
-npm run typecheck      # tsc --noEmit
-npm test               # policy + workflow + student page + console render tests
-npm run build          # writes dist/index.html
-cp dist/index.html ../frontend/professor-dashboard.html
-```
-
-The console has two views:
-
-- **Console** (default) — name the lecture, start/stop the session, confirm the
-  lecture hall, and read the live attendance counters. `Start` is disabled until
-  a lecture name exists and the hall was confirmed in the last 60 minutes, and
-  the reasons are listed next to the button rather than hidden in a tooltip.
-- **Projector** (`#projector`, or the **Project** button) — a full-screen code
-  for the lecture hall, with the rotation countdown and the verified count. It
-  works in a second window because the key stays in the URL.
-
-Design notes: one dark surface with a hairline border per panel, lime reserved
-for the primary action and live state, pink for destructive actions and
-rejections, and no decorative animation beyond the token countdown. Every
-loading, empty, error and stopped state has explicit copy; a failed request says
-what failed and when it will retry.
-
-> No browser automation is available in this repository's test setup: the
-> render tests mount the real components in jsdom and exercise validation, the
-> start request body, the stop confirmation and the projector route. Visual
-> review, real geolocation and a deployed n8n workflow still need a human on a
-> real device.
 
 > Use production webhook URLs when testing the complete flow. Workflow state needs to persist in the active workflow, which test URLs do not provide.
 

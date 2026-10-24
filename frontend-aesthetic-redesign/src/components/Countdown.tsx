@@ -4,84 +4,91 @@ interface Props {
   active: boolean;
   frozen: boolean;
   durationMs: number;
-  /** Changes on every fresh token so the bar restarts. */
+  /** changes every time a fresh token arrives → restarts the timer */
   seq: number;
 }
 
 /**
- * Token lifetime indicator. requestAnimationFrame writes straight to the DOM
- * so a 60fps bar never re-renders the React tree. The visible number is
- * hidden from assistive tech — it changes every second and would be noise;
- * the static caption underneath carries the same information.
+ * Token countdown. Updates the DOM directly from requestAnimationFrame so the
+ * React tree never re-renders at 60fps.
  */
 export function Countdown({ active, frozen, durationMs, seq }: Props) {
-  const barRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const secondsRef = useRef<HTMLSpanElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  const numRef = useRef<HTMLSpanElement>(null);
+  const textRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
     const root = rootRef.current;
     const bar = barRef.current;
-    const seconds = secondsRef.current;
-    if (!root || !bar || !seconds) return;
+    const num = numRef.current;
+    const text = textRef.current;
+    if (!root || !bar || !num || !text) return;
 
     if (!active) {
-      root.dataset.tone = "idle";
       bar.style.width = "0%";
-      seconds.textContent = "--";
+      num.textContent = "--";
+      text.textContent = "Token timer idle";
+      root.dataset.tone = "idle";
       return;
     }
-    if (frozen) return;
 
-    const startedAt = performance.now();
-    let frame = 0;
-    let lastSecond = -1;
+    if (frozen) return; // keep whatever is on screen while stopping
+
+    const start = performance.now();
+    let raf = 0;
+    let lastSec = -1;
 
     const tick = (now: number) => {
-      const remaining = Math.max(0, durationMs - (now - startedAt));
-      const fraction = remaining / durationMs;
-      bar.style.width = `${(fraction * 100).toFixed(2)}%`;
-      root.dataset.tone = fraction > 0.5 ? "ok" : fraction > 0.2 ? "warn" : "hot";
+      const remaining = Math.max(0, durationMs - (now - start));
+      const pct = remaining / durationMs;
 
-      const second = Math.ceil(remaining / 1000);
-      if (second !== lastSecond) {
-        lastSecond = second;
-        seconds.textContent = remaining > 0 ? `${second}s` : "0s";
+      bar.style.width = `${(pct * 100).toFixed(2)}%`;
+      // Colour shift: green → yellow → red
+      root.dataset.tone = pct > 0.5 ? "ok" : pct > 0.2 ? "warn" : "hot";
+
+      const sec = Math.ceil(remaining / 1000);
+      if (sec !== lastSec) {
+        lastSec = sec;
+        num.textContent = String(sec).padStart(2, "0");
+        text.textContent = remaining > 0 ? `Next token in ${sec}s` : "Refreshing…";
       }
-      if (remaining > 0) frame = requestAnimationFrame(tick);
+
+      if (remaining > 0) {
+        raf = requestAnimationFrame(tick);
+      } else {
+        text.textContent = "Refreshing…";
+      }
     };
 
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [active, frozen, durationMs, seq]);
 
-  const caption = !active
-    ? "The code appears when a session starts."
-    : frozen
-      ? "Session ending — the code is frozen."
-      : `This code changes every ${Math.round(durationMs / 1000)} seconds.`;
-
   return (
-    <div ref={rootRef} data-tone="idle" className="cd w-full">
-      <div className="mb-2 flex items-baseline justify-between gap-4">
-        <p className="label-micro text-fg-muted">Next code</p>
-        <span
-          ref={secondsRef}
-          aria-hidden="true"
-          className="tabular font-mono text-sm font-bold [color:var(--cd)]"
-        >
-          --
-        </span>
-      </div>
-      <div className="relative h-2 w-full overflow-hidden rounded-full bg-white/10">
-        <div
-          ref={barRef}
-          className="h-full rounded-full transition-[width] duration-150 ease-linear [background-color:var(--cd)]"
-          style={{ width: "0%" }}
+    <div ref={rootRef} data-tone="idle" className="cd flex items-end gap-5">
+      <span
+        ref={numRef}
+        className="min-w-[2ch] font-display text-[clamp(3.5rem,8vw,5.5rem)] leading-[0.8] font-black tracking-[-0.06em] tabular-nums transition-colors duration-300 [color:var(--cd)]"
+        aria-hidden="true"
+      />
+      <div className="min-w-0 flex-1 pb-1">
+        <p
+          ref={textRef}
+          className="mb-2.5 min-h-[1.25rem] font-mono text-xs tracking-wide text-cream/70 uppercase"
         />
-        <div className="cd-segments pointer-events-none absolute inset-0" />
+        <div
+          className="relative h-4 overflow-hidden rounded-full bg-white/10"
+          role="presentation"
+        >
+          <div
+            ref={barRef}
+            className="h-full rounded-full shadow-[0_0_24px_-2px_var(--cd)] [background-color:var(--cd)]"
+            style={{ width: "0%" }}
+          />
+          <div className="cd-segments pointer-events-none absolute inset-0" />
+        </div>
       </div>
-      <p className="mt-1.5 text-[11px] leading-relaxed text-fg-subtle">{caption}</p>
     </div>
   );
 }
