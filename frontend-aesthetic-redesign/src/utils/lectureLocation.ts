@@ -82,6 +82,11 @@ export function isLectureLocationFresh(location: LectureLocation | null, now = D
   return validateLectureLocation(location, { now }).valid;
 }
 
+export function lectureLocationAgeMs(location: LectureLocation | null, now = Date.now()): number | null {
+  if (!location || !Number.isFinite(location.confirmedAt)) return null;
+  return Math.max(0, now - location.confirmedAt);
+}
+
 // ---- Persistence: remember the last hall this professor confirmed ----
 // Only a location the professor confirmed is ever stored; there is no built-in
 // default, so the application never invents a lecture hall.
@@ -134,19 +139,13 @@ export interface SearchOptions {
   language?: string;
 }
 
-export interface PlaceSearchOutcome {
-  places: PlaceResult[];
-  /** True when the request failed (network/HTTP) rather than finding nothing. */
-  failed: boolean;
-}
-
 /**
- * Free-text place search. Distinguishes "no match" from "search unavailable"
- * so the picker can tell the professor which one happened.
+ * Free-text place search. Returns [] on any failure so the picker can show a
+ * friendly "no results" state instead of breaking.
  */
-export async function searchPlaces(query: string, options: SearchOptions = {}): Promise<PlaceSearchOutcome> {
+export async function searchPlaces(query: string, options: SearchOptions = {}): Promise<PlaceResult[]> {
   const trimmed = query.trim();
-  if (trimmed.length < 3) return { places: [], failed: false };
+  if (trimmed.length < 3) return [];
 
   const url = new URL(GEOCODE_URL);
   url.searchParams.set("format", "jsonv2");
@@ -162,10 +161,10 @@ export async function searchPlaces(query: string, options: SearchOptions = {}): 
         "Accept-Language": options.language ?? "en",
       },
     });
-    if (!response.ok) return { places: [], failed: true };
+    if (!response.ok) return [];
     const data = (await response.json()) as NominatimPlace[];
-    if (!Array.isArray(data)) return { places: [], failed: true };
-    const places = data
+    if (!Array.isArray(data)) return [];
+    return data
       .map((place) => ({
         label: String(place.display_name ?? "").trim(),
         latitude: Number(place.lat),
@@ -173,10 +172,8 @@ export async function searchPlaces(query: string, options: SearchOptions = {}): 
       }))
       .filter((place) => place.label.length > 0 && isValidCoordinatePair(place.latitude, place.longitude))
       .slice(0, options.limit ?? 5);
-    return { places, failed: false };
-  } catch (error) {
-    if ((error as { name?: string }).name === "AbortError") return { places: [], failed: false };
-    return { places: [], failed: true };
+  } catch {
+    return [];
   }
 }
 

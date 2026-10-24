@@ -6,7 +6,6 @@
 // lecture-location.test.mjs.
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import test from "node:test";
 
 import {
   assessStudentAttendance,
@@ -82,7 +81,6 @@ const qrWebhook = node("Webhook QR");
 const createSession = node("Create Session");
 const rotateQr = node("Rotate If Needed");
 const validateSubmission = node("Validate Submission");
-const validateCode = validateSubmission.parameters.jsCode;
 
 assert.equal(startWebhook.parameters.httpMethod, "POST");
 assert.equal(startWebhook.parameters.path, "dqr-start");
@@ -105,7 +103,7 @@ const assess = ({ instructor, student, radius = 100, maxAccuracy = 50, maxAge = 
   if (now - student.timestamp > maxAge * 1000) {
     return { locationStatus: "REJECTED", reason: "STALE_LOCATION" };
   }
-  const distanceMeters = haversineMeters(instructor, student);
+  const distanceMeters = distance(instructor, student);
   return distanceMeters <= radius
     ? { locationStatus: "VERIFIED", reason: "", distanceMeters }
     : { locationStatus: "REJECTED", reason: "OUTSIDE_RADIUS", distanceMeters };
@@ -145,7 +143,7 @@ test("missing and stale readings are rejected", () => {
 });
 
 test("supplied coordinates calculate to 101.5965363156 m", () => {
-  const result = haversineMeters(
+  const result = distance(
     { latitude: 29.99625519, longitude: 30.96586222 },
     { latitude: 29.9963212, longitude: 30.96691445 }
   );

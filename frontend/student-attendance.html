@@ -2,359 +2,250 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#0a0612">
-<meta name="color-scheme" content="dark">
-<title>Record attendance</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Record Attendance</title>
 <style>
-  /* ==========================================================
-     Student check-in. Same palette and type roles as the
-     professor console, but system fonts only: this page is
-     opened on a phone, often on campus data, and must paint
-     without downloading a typeface.
-     ========================================================== */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --ink: #0a0612;
-    --ink-2: #120b20;
-    --line: rgba(245, 240, 230, 0.16);
-    --cream: #f5f0e6;
-    --fg: #f5f0e6;
-    --muted: #b8b2c4;
-    --subtle: #948ea3;
-    --lime: #c8ff2e;
-    --pink: #ff3ea5;
-    --amber: #ffd02e;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --bg: #ffffff;
+    --card: #f8f9fa;
+    --text: #1a1a2e;
+    --muted: #6c757d;
+    --accent: #0984e3;
+    --accent-hover: #0770c2;
+    --success: #00b894;
+    --error: #e17055;
+    --input-bg: #ffffff;
+    --input-border: #ced4da;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a2e;
+      --card: #16213e;
+      --text: #e0e0e0;
+      --muted: #888;
+      --input-bg: #0f3460;
+      --input-border: #444;
+    }
   }
 
   body {
-    min-height: 100svh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
-    background: var(--ink);
-    color: var(--fg);
-    font-family: var(--mono);
-    font-size: 15px;
-    line-height: 1.55;
-    -webkit-font-smoothing: antialiased;
-    -webkit-text-size-adjust: 100%;
-  }
-
-  ::selection { background: var(--lime); color: var(--ink); }
-
-  :focus-visible {
-    outline: 2px solid var(--lime);
-    outline-offset: 2px;
-  }
-
-  .shell { width: 100%; max-width: 440px; }
-
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 14px;
-  }
-
-  .brand-mark {
-    display: grid;
-    place-items: center;
-    width: 30px;
-    height: 30px;
-    border-radius: 6px;
-    background: var(--lime);
-    color: var(--ink);
-    font-weight: 700;
-  }
-
-  .brand-name {
-    font-family: var(--serif);
-    font-size: 19px;
-    line-height: 1;
-  }
-
-  .brand-note {
-    font-size: 10px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--subtle);
-    margin-top: 5px;
+    padding: 1rem;
   }
 
   .card {
-    background: var(--ink-2);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 22px 18px;
+    background: var(--card);
+    border-radius: 16px;
+    padding: 2rem 1.5rem;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.1);
   }
 
   h1 {
-    font-family: var(--serif);
-    font-size: 26px;
-    font-weight: 400;
-    line-height: 1.15;
-    letter-spacing: -0.01em;
-  }
-
-  .kicker {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--subtle);
-    margin-bottom: 6px;
+    font-size: 1.5rem;
+    text-align: center;
+    margin-bottom: 0.25rem;
   }
 
   .lecture-name {
-    font-size: 17px;
-    color: var(--cream);
-    margin: 4px 0 18px;
-    overflow-wrap: anywhere;
+    text-align: center;
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 1.1rem;
+    margin-bottom: 1.5rem;
   }
 
   label {
     display: block;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
+    font-size: 0.85rem;
+    font-weight: 600;
     color: var(--muted);
-    margin: 16px 0 6px;
+    margin-bottom: 0.3rem;
+    margin-top: 1rem;
   }
 
   label:first-of-type { margin-top: 0; }
 
   input {
     width: 100%;
-    min-height: 46px;
-    padding: 12px 14px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--ink);
-    color: var(--fg);
-    /* 16px stops iOS Safari zooming the page when the field focuses. */
-    font-family: var(--mono);
-    font-size: 16px;
+    padding: 0.85rem 1rem;
+    border: 2px solid var(--input-border);
+    border-radius: 10px;
+    background: var(--input-bg);
+    color: var(--text);
+    font-size: 1rem;
+    outline: none;
     -webkit-appearance: none;
   }
 
-  input::placeholder { color: var(--subtle); }
-
   input:focus {
-    border-color: var(--lime);
-    outline: 2px solid var(--lime);
-    outline-offset: 1px;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(9,132,227,0.2);
   }
 
   button.submit {
     width: 100%;
-    min-height: 50px;
-    margin-top: 22px;
-    padding: 14px 16px;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    background: var(--lime);
-    color: var(--ink);
-    font-family: var(--mono);
-    font-size: 13px;
+    margin-top: 1.5rem;
+    padding: 1rem;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 1.1rem;
     font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
     cursor: pointer;
-    transition: background-color 0.15s ease-out;
+    transition: background 0.2s;
   }
 
-  button.submit:hover { background: #a8d81f; }
-  button.submit:active { transform: translateY(1px); }
+  button.submit:hover { background: var(--accent-hover); }
 
   button.submit:disabled {
-    background: rgba(245, 240, 230, 0.08);
-    color: var(--subtle);
+    background: var(--muted);
     cursor: not-allowed;
-    transform: none;
   }
 
   .msg {
-    padding: 12px 14px;
-    border-radius: 8px;
-    border: 1px solid transparent;
-    margin-top: 14px;
-    font-size: 13px;
+    text-align: center;
+    padding: 1rem;
+    border-radius: 10px;
+    margin-top: 1rem;
+    font-size: 0.95rem;
     line-height: 1.5;
   }
 
   .msg-error {
-    border-color: rgba(255, 62, 165, 0.55);
-    background: rgba(255, 62, 165, 0.08);
-    color: var(--pink);
+    background: rgba(225,112,85,0.15);
+    color: var(--error);
   }
 
   .msg-success {
-    border-color: rgba(200, 255, 46, 0.5);
-    background: rgba(200, 255, 46, 0.08);
-    color: var(--lime);
+    background: rgba(0,184,148,0.15);
+    color: var(--success);
   }
 
   .status-tag {
     display: inline-block;
-    margin-bottom: 8px;
-    padding: 3px 9px;
+    margin-bottom: 0.5rem;
+    padding: 0.25rem 0.6rem;
     border-radius: 999px;
-    border: 1px solid currentColor;
-    color: var(--lime);
-    font-size: 10px;
+    font-size: 0.75rem;
     font-weight: 700;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.08em;
   }
 
-  .status-tag-ok { color: var(--lime); }
+  .status-tag-ok {
+    background: rgba(0,184,148,0.18);
+    color: var(--success);
+  }
 
-  .location-note {
-    margin-top: 16px;
-    padding-top: 14px;
-    border-top: 1px solid var(--line);
-    color: var(--subtle);
-    font-size: 11px;
-    line-height: 1.6;
+  .success-screen {
+    text-align: center;
+  }
+
+  .success-screen .checkmark {
+    font-size: 4rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .success-screen h1 {
+    color: var(--success);
+    margin-bottom: 0.5rem;
+  }
+
+  .success-screen p {
+    color: var(--muted);
   }
 
   .loading {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+    text-align: center;
     color: var(--muted);
-    font-size: 13px;
-    padding: 12px 0;
+    font-size: 1.1rem;
+    padding: 2rem;
+  }
+
+  .location-note {
+    margin-top: 1rem;
+    padding: 0.85rem 1rem;
+    border-radius: 10px;
+    background: rgba(9,132,227,0.1);
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.45;
   }
 
   .spinner {
-    width: 18px;
-    height: 18px;
-    flex: none;
-    border: 2px solid var(--line);
-    border-top-color: var(--lime);
+    display: inline-block;
+    width: 28px;
+    height: 28px;
+    border: 3px solid var(--input-border);
+    border-top-color: var(--accent);
     border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+    animation: spin 0.7s linear infinite;
+    margin-bottom: 0.75rem;
   }
 
   @keyframes spin { to { transform: rotate(360deg); } }
-
-  .success-screen h1 { color: var(--lime); margin-bottom: 8px; }
-  .success-screen p { color: var(--muted); font-size: 14px; }
-
-  .checkmark {
-    display: grid;
-    place-items: center;
-    width: 46px;
-    height: 46px;
-    margin-bottom: 14px;
-    border-radius: 50%;
-    background: var(--lime);
-    color: var(--ink);
-    font-size: 24px;
-    font-weight: 700;
-  }
-
-  .footnote {
-    margin-top: 14px;
-    text-align: center;
-    font-size: 10px;
-    letter-spacing: 0.06em;
-    color: var(--subtle);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-      animation-duration: 0.001ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0.001ms !important;
-    }
-  }
 </style>
 </head>
 <body>
 
-<div class="shell">
-  <div class="brand">
-    <span class="brand-mark" aria-hidden="true">QR</span>
-    <span>
-      <span class="brand-name">QR Attendance</span>
-      <span class="brand-note">Student check-in</span>
-    </span>
+<div class="card" id="card">
+  <!-- Loading state -->
+  <div id="viewLoading" class="loading">
+    <div class="spinner"></div>
+    <div>Verifying QR code…</div>
   </div>
 
-  <div class="card" id="card">
-    <!-- Loading state -->
-    <div id="viewLoading" class="loading" role="status" aria-live="polite">
-      <span class="spinner" aria-hidden="true"></span>
-      <span>Verifying this QR code…</span>
-    </div>
-
-    <!-- Error state -->
-    <div id="viewError" style="display:none;">
-      <p class="kicker">Check-in failed</p>
-      <h1>Something went wrong</h1>
-      <div class="msg msg-error" id="errorMsg" role="alert"></div>
-      <p class="location-note">
-        Scan the code currently on the projector. If it keeps failing, ask your instructor whether the session
-        is still open.
-      </p>
-    </div>
-
-    <!-- Form state -->
-    <div id="viewForm" style="display:none;">
-      <p class="kicker">Lecture</p>
-      <h1>Record attendance</h1>
-      <div class="lecture-name" id="lectureName"></div>
-
-      <form id="attendanceForm">
-        <label for="name">Full name</label>
-        <input type="text" id="name" required autocomplete="name" placeholder="Jane Doe">
-
-        <label for="studentId">University / student ID</label>
-        <input type="text" id="studentId" required inputmode="numeric" placeholder="202312345">
-
-        <label for="email">University email</label>
-        <input type="email" id="email" required autocomplete="email" inputmode="email" placeholder="jane@university.edu">
-
-        <button type="submit" class="submit" id="btnSubmit">Submit attendance</button>
-      </form>
-
-      <div class="msg msg-error" id="formError" role="alert" style="display:none;"></div>
-
-      <div class="location-note" id="locationNote">
-        A fresh high-accuracy location reading is requested when you submit. Up to three readings are collected
-        within a bounded window and the most accurate fresh one is used. Your reading must report an accuracy of
-        ≤ 50 m and put you within 100 m of the lecture hall the instructor confirmed on the map. Accuracy is a
-        device estimate and cannot be guaranteed, especially indoors.
-      </div>
-    </div>
-
-    <!-- Success state -->
-    <div id="viewSuccess" class="success-screen" style="display:none;">
-      <div class="checkmark" aria-hidden="true">✓</div>
-      <h1>Attendance accepted</h1>
-      <p>A confirmation email is on the way. You can close this page.</p>
-    </div>
+  <!-- Error state -->
+  <div id="viewError" style="display:none;">
+    <h1>😕</h1>
+    <div class="msg msg-error" id="errorMsg"></div>
   </div>
 
-  <p class="footnote">
-    Location is used once, to check you are in the room — never in the background.
-  </p>
+  <!-- Form state -->
+  <div id="viewForm" style="display:none;">
+    <h1>📋 Record Attendance</h1>
+    <div class="lecture-name" id="lectureName"></div>
+
+    <form id="attendanceForm">
+      <label for="name">Full Name</label>
+      <input type="text" id="name" required autocomplete="name" placeholder="Jane Doe">
+
+      <label for="studentId">University / Student ID</label>
+      <input type="text" id="studentId" required placeholder="202312345">
+
+      <label for="email">University Email</label>
+      <input type="email" id="email" required autocomplete="email" placeholder="jane@university.edu">
+
+      <button type="submit" class="submit" id="btnSubmit">Submit Attendance</button>
+    </form>
+
+    <div class="location-note" id="locationNote">
+      A fresh high-accuracy location reading is requested when you submit. Up to three readings are collected
+      within a bounded window and the most accurate fresh one is used. Your reading must report an accuracy of
+      ≤ 50 m and put you within 100 m of the lecture hall the instructor confirmed on the map. Accuracy is a
+      device estimate and cannot be guaranteed, especially indoors.
+    </div>
+    <div class="msg msg-error" id="formError" style="display:none;"></div>
+  </div>
+
+  <!-- Success state -->
+  <div id="viewSuccess" class="success-screen" style="display:none;">
+    <div class="checkmark">✅</div>
+    <h1>Attendance Recorded!</h1>
+    <p>A confirmation email is on the way.<br>You can close this page.</p>
+  </div>
 </div>
-
-<noscript>
-  <div class="card">
-    <h1>JavaScript is required</h1>
-    <p class="location-note">This page checks a signed QR ticket and your location in the browser. Enable
-    JavaScript and scan the code again.</p>
-  </div>
-</noscript>
 
 <script type="module">
 // Shared with the instructor dashboard: same acquisition config and same
