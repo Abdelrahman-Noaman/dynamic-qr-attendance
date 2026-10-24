@@ -24,7 +24,35 @@ flowchart TD
 
 ### Professor dashboard
 
-`frontend/professor-dashboard.html` starts and stops a session, polls for the current token, renders the QR code with QRCode.js, and displays the token countdown. The professor key is read from the page URL and sent to the protected professor endpoints.
+`frontend/professor-dashboard.html` is the built single-file bundle of
+`frontend-aesthetic-redesign/` (React 19 + Vite + Tailwind). It starts and stops
+a session, polls for the current token, renders the QR code, and shows the token
+countdown. The professor key is read from the page URL, checked against
+`/dqr-qr` before the console opens, and sent to the protected professor
+endpoints.
+
+It has two views on one page:
+
+- **Console** (`#` — the default): lecture name, start/stop with an inline
+  stop confirmation, the lecture-hall reference, and the live attendance
+  counters from the workflow.
+- **Projector** (`#projector`): a large, calm, full-screen code intended to be
+  projected from a second window, with the rotation countdown, the verified
+  count and the student page URL.
+
+Layering inside `frontend-aesthetic-redesign/src`:
+
+| Path | Responsibility |
+|---|---|
+| `api/attendanceApi.ts` | webhook endpoints, timeouts, response parsing, key probe |
+| `hooks/useAttendance.ts` | session state, polling schedule, start/stop, lecture-hall state |
+| `hooks/useHashRoute.ts` | console ⇄ projector routing without a router dependency |
+| `components/ui/*` | button, panel, field, badge — the shared visual vocabulary |
+| `components/*` | one panel per task: session, lecture hall, attendance, projector |
+| `index.css` | design tokens (colour roles, type scale, motion) and base styles |
+
+Business rules stay out of the views: the attendance decision lives in
+`frontend/location-core.js` and the workflow, never in the dashboard.
 
 ### Student page
 
@@ -34,7 +62,7 @@ flowchart TD
 
 `frontend/location-core.js` is the single implementation of geolocation
 acquisition, reading validation and the attendance decision, imported by both
-the dashboard (`src/utils/location.ts`, `src/utils/lectureLocation.ts`) and the
+the dashboard (`src/utils/lectureLocation.ts`) and the
 student page. It requests high-accuracy, never-cached fixes for the student,
 collects up to three readings inside a bounded window, keeps the most accurate
 fresh reading, and rejects readings with out-of-range coordinates, non-positive
@@ -46,8 +74,12 @@ independent of the accuracy target.
 
 ### Map and geocoding
 
-`src/components/LocationPicker.tsx` renders a Leaflet map (no API key) inside the
-control panel, with Nominatim place search and a draggable pin. The confirmed pin
+`src/components/LocationPicker.tsx` renders a Leaflet map (no API key), with
+Nominatim place search and a draggable pin. The map is mounted only when the
+professor asks for it: the panel is otherwise a summary of the confirmed pin.
+A hall whose confirmation is older than the 60-minute window can be re-confirmed
+at the same coordinates in one click, or moved on the map. The picker sits
+behind an error boundary so a map failure cannot take the console down. The confirmed pin
 is an administrative reference for where the class meets; it is not the
 professor's device position and not proof of presence. Tile and geocoding URLs
 come from `VITE_*` overrides in `src/config.ts`, so no secret ships in the

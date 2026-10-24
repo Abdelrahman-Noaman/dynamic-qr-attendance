@@ -406,16 +406,28 @@ test("QR rotation, ticket signing, duplicates, sheet mappings and email routing 
   assert.ok(node("Check Duplicate"));
   assert.ok(node("Already Submitted?"));
   assert.deepEqual(
-    workflow.connections["Verified Location?"].main[0].map((edge) => edge.node),
+    workflow.connections["Verified Attendance?"].main[0].map((edge) => edge.node),
     ["Use Outlook Email?"],
+  );
+  // Rejected attempts are logged, but they never reach the confirmation email.
+  assert.deepEqual(
+    workflow.connections["Rejected Location?"].main[0].map((edge) => edge.node),
+    ["Save Rejected Location"],
   );
 
   const mapping = node("Save Attendance").parameters.columns.value;
-  assert.equal(Object.keys(mapping).length, 18);
+  // The legacy "Review Status" column was dropped from the sheet contract.
+  assert.equal(Object.keys(mapping).length, 17);
+  assert.equal("Review Status" in mapping, false);
   assert.match(mapping["Distance (m)"], /distanceMeters/);
   assert.match(mapping["Status"], /'Present'/);
   assert.doesNotMatch(mapping["Status"], /Needs Review/);
   assert.match(mapping["Instructor Latitude"], /instructorLatitude/);
+
+  const rejected = node("Save Rejected Location").parameters.columns.value;
+  assert.equal(Object.keys(rejected).length, 17);
+  assert.equal(rejected["Status"], "Rejected");
+  assert.match(rejected["Location Status"], /locationStatus/);
 });
 
 test("Rotate If Needed exposes the confirmed hall and the new counters", () => {

@@ -1,84 +1,126 @@
 import { useState, type FormEvent } from "react";
-import { EyeIcon, LockIcon } from "./Icons";
-import { MagneticButton } from "./MagneticButton";
+import { checkKey } from "../api/attendanceApi";
+import { Button } from "./ui/Button";
+import { TextField } from "./ui/Field";
+import { AlertIcon, EyeIcon, LockIcon } from "./Icons";
 
-/** Shown when the page is opened without ?key=… — keeps the original message, adds a way in. */
-export function KeyGate() {
+interface Props {
+  /** Explains why the gate is on screen again (rejected key, sign-out). */
+  notice?: string | null;
+  onUnlock: (key: string) => void;
+}
+
+/**
+ * Entry point when the page has no usable key. The key is checked against the
+ * workflow before the console opens, so a typo is a clear rejection rather
+ * than a dashboard that silently fails to poll.
+ */
+export function KeyGate({ notice, onUnlock }: Props) {
   const [value, setValue] = useState("");
   const [show, setShow] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    const k = value.trim();
-    if (!k) return;
-    const url = new URL(window.location.href);
-    url.searchParams.set("key", k);
-    window.location.assign(url.toString());
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const candidate = value.trim();
+    if (!candidate || checking) return;
+
+    setChecking(true);
+    setError(null);
+    const result = await checkKey(candidate);
+    setChecking(false);
+
+    if (result.ok) {
+      onUnlock(candidate);
+      return;
+    }
+    setError(
+      result.reason === "unauthorized"
+        ? "That key was rejected by the attendance service. Check it and try again."
+        : `${result.detail} Nothing was unlocked.`,
+    );
   };
 
-  return (
-    <div
-      id="no-key"
-      role="alert"
-      className="relative rounded-[2rem] border-2 border-pink bg-pink/[0.07] p-6 sm:p-8"
-    >
-      <span className="absolute -top-3.5 left-6 flex items-center gap-1.5 rounded-full bg-pink px-3.5 py-1 font-mono text-[11px] font-bold tracking-[0.2em] text-ink uppercase">
-        <LockIcon className="size-3" />
-        Access locked
-      </span>
+  const commandExample = `${window.location.pathname.split("/").pop() || "index.html"}?key=YOUR_KEY`;
 
-      <p className="font-display text-[clamp(1.15rem,2.4vw,1.6rem)] leading-tight font-semibold tracking-tight">
-        Open this page with your key in the URL:
+  return (
+    <section
+      aria-labelledby="gate-title"
+      className="rounded-xl border border-line bg-ink-2 p-5 sm:p-6"
+    >
+      <div className="flex items-center gap-2">
+        <LockIcon className="size-4 text-lime" />
+        <p className="label-micro text-fg-subtle">Access</p>
+      </div>
+      <h1 id="gate-title" className="mt-1.5 font-display text-[26px] leading-tight">
+        This console needs your professor key
+      </h1>
+      <p className="mt-1.5 max-w-prose text-[13px] leading-relaxed text-fg-muted">
+        The key authorises session control and is checked against the attendance service before anything
+        unlocks. It is never stored on the server by this page.
       </p>
-      <code className="mt-4 block overflow-x-auto rounded-2xl bg-ink px-4 py-3.5 font-mono text-[clamp(0.8rem,2.2vw,1.05rem)] font-bold whitespace-nowrap text-lime ring-1 ring-white/10">
-        professor.html?key=<span className="text-pink">YOUR_KEY</span>
+
+      {notice && (
+        <p role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-pink/50 bg-pink/[0.07] px-3 py-2.5 text-[12px] leading-relaxed text-pink">
+          <AlertIcon className="mt-0.5 size-3.5 shrink-0" />
+          {notice}
+        </p>
+      )}
+
+      <code className="mt-4 block overflow-x-auto rounded-lg border border-line bg-ink px-3 py-2.5 font-mono text-[13px] text-lime">
+        {commandExample.replace("YOUR_KEY", "")}
+        <span className="text-fg-muted">YOUR_KEY</span>
       </code>
 
-      <form onSubmit={submit} className="mt-8">
-        <label
-          htmlFor="key-input"
-          className="font-mono text-xs font-bold tracking-[0.2em] text-pink uppercase"
-        >
-          Or paste your key here
-        </label>
-        <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center">
-          <div className="relative min-w-0 flex-1">
-            <input
-              id="key-input"
-              type={show ? "text" : "password"}
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="YOUR_KEY"
-              className="w-full rounded-none border-0 border-b-[3px] border-white/25 bg-transparent py-3 pr-12 font-display text-xl font-bold tracking-tight text-cream transition-[border-color] duration-200 outline-none placeholder:text-cream/25 focus:border-lime"
-            />
+      <form onSubmit={submit} className="mt-5" noValidate>
+        <TextField
+          label="Professor key"
+          type={show ? "text" : "password"}
+          value={value}
+          onChange={(event) => {
+            setValue(event.target.value);
+            if (error) setError(null);
+          }}
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          placeholder="Paste your key"
+          error={error}
+          hint="Open the page with ?key=… in the URL, or paste the key here."
+          trailing={
             <button
               type="button"
-              onClick={() => setShow((s) => !s)}
-              aria-label={show ? "Hide key" : "Show key"}
+              onClick={() => setShow((current) => !current)}
               aria-pressed={show}
-              className="absolute top-1/2 right-0 grid size-9 -translate-y-1/2 place-items-center rounded-full text-cream/70 transition-colors hover:bg-white/10 hover:text-lime"
+              aria-label={show ? "Hide key" : "Show key"}
+              className="grid size-8 place-items-center rounded-md text-fg-subtle transition-colors hover:bg-white/[0.06] hover:text-fg"
             >
-              <EyeIcon off={show} className="size-5" />
+              <EyeIcon off={show} className="size-4" />
             </button>
-          </div>
+          }
+        />
 
-          <MagneticButton
-            type="submit"
-            disabled={!value.trim()}
-            wrapperClassName="w-full sm:w-auto"
-            className="group relative isolate flex items-center justify-center gap-3 overflow-hidden rounded-full bg-lime px-8 py-4 font-display text-base font-extrabold tracking-wide text-ink uppercase disabled:cursor-not-allowed disabled:bg-white/[0.07] disabled:text-cream/45 disabled:hatch"
-          >
-            <span
-              aria-hidden="true"
-              className="absolute inset-x-[-10%] top-full -z-10 h-[190%] rounded-[50%] bg-pink transition-[top] duration-500 ease-snap group-hover:top-[-45%] group-disabled:hidden"
-            />
-            Unlock
-            <LockIcon className="size-4" />
-          </MagneticButton>
-        </div>
+        <Button
+          type="submit"
+          variant="primary"
+          size="md"
+          className="mt-4"
+          busy={checking}
+          disabled={!value.trim()}
+          icon={<LockIcon className="size-3.5" />}
+        >
+          {checking ? "Checking key…" : "Unlock console"}
+        </Button>
       </form>
-    </div>
+
+      {error && (
+        <p className="mt-4 flex items-start gap-2 border-t border-line pt-3 text-[12px] leading-relaxed text-fg-subtle">
+          <AlertIcon className="mt-0.5 size-3.5 shrink-0" />
+          If the service is unreachable the key cannot be verified — try again once the connection is back. The
+          key still lives in the URL you were given, so nothing is lost.
+        </p>
+      )}
+    </section>
   );
 }
