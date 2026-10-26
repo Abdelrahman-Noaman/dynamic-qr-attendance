@@ -16,7 +16,7 @@ export function Header({ phase, keyHint }: { phase: Phase; keyHint: string | nul
   return (
     <header className="mx-auto flex max-w-[1500px] animate-fade-up items-center justify-between gap-4 px-5 pt-6 sm:px-10">
       <div className="group flex items-center gap-3">
-        <span className="grid size-12 -rotate-6 place-items-center rounded-2xl bg-lime text-ink shadow-[0_6px_0_-1px_rgba(10,6,18,0.6)] transition-transform duration-300 ease-snap group-hover:rotate-6 group-hover:scale-110">
+        <span className="grid size-12 -rotate-6 place-items-center rounded-2xl bg-lime text-ink shadow-[0_6px_0_-1px_rgba(7,20,38,0.6)] transition-transform duration-300 ease-snap group-hover:rotate-6 group-hover:scale-110">
           <ScanGlyph className="size-6" />
         </span>
         <span className="flex flex-col leading-none">

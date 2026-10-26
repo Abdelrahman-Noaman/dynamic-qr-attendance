@@ -40,7 +40,7 @@ export function Headline() {
             </span>
 
             <span className="mb-1 flex min-w-0 animate-fade-up flex-col items-start gap-2.5 [animation-delay:700ms] sm:mb-3">
-              <span className="group inline-flex -rotate-[5deg] items-center gap-2 rounded-[1.1rem] bg-pink px-3.5 py-2 font-mono text-[11px] leading-tight font-bold tracking-[0.12em] text-ink uppercase shadow-[0_8px_0_-2px_rgba(10,6,18,0.55)] transition-transform duration-300 ease-snap hover:rotate-[3deg] hover:scale-105 sm:rounded-full sm:px-5 sm:py-2.5 sm:text-sm">
+              <span className="group inline-flex -rotate-[5deg] items-center gap-2 rounded-[1.1rem] bg-pink px-3.5 py-2 font-mono text-[11px] leading-tight font-bold tracking-[0.12em] text-ink uppercase shadow-[0_8px_0_-2px_rgba(7,20,38,0.55)] transition-transform duration-300 ease-snap hover:rotate-[3deg] hover:scale-105 sm:rounded-full sm:px-5 sm:py-2.5 sm:text-sm">
                 <SparkleIcon className="size-3.5 shrink-0 sm:size-4" />
                 Professor Control Panel
               </span>

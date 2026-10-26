@@ -80,7 +80,7 @@ export function QrStage({ qr, frozen, locked, lectureName, tokenNo }: Props) {
       className={cn(
         "flex w-full flex-col items-center",
         isFs &&
-          "min-h-screen justify-center bg-ink bg-[radial-gradient(60%_50%_at_50%_0%,rgba(123,44,255,0.35),transparent)] p-6"
+          "min-h-screen justify-center bg-ink p-6"
       )}
     >
       <div

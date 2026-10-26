@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import qrcode from "qrcode-generator";
 
-const INK = "#0a0612";
+const INK = "#071426";
 const MARGIN = 2; // quiet-zone modules inside the SVG (the card adds more)
 
 interface Built {
@@ -121,7 +121,7 @@ export function QrGhost() {
           width="0.8"
           height="0.8"
           rx="0.28"
-          fill={c.hue > 0.78 ? "#ff3ea5" : c.hue > 0.45 ? "#7b2cff" : "#0a0612"}
+          fill={c.hue > 0.78 ? "#ff3ea5" : c.hue > 0.45 ? "#7b2cff" : "#071426"}
           className="animate-twinkle"
           style={{ animationDelay: `${c.delay}s`, opacity: 0.12 }}
         />
