@@ -1,8 +1,7 @@
 import { useEffect } from "react";
 
 /**
- * Publishes the pointer position as CSS variables so decorative layers
- * (spotlight glow, floating stickers) can react without re-rendering React.
+ * Publishes pointer position for the existing decorative parallax stickers.
  */
 export function usePointerFx() {
   useEffect(() => {
@@ -16,8 +15,6 @@ export function usePointerFx() {
 
     const flush = () => {
       raf = 0;
-      root.style.setProperty("--mx", `${x}px`);
-      root.style.setProperty("--my", `${y}px`);
       root.style.setProperty("--px", ((x / window.innerWidth) * 2 - 1).toFixed(3));
       root.style.setProperty("--py", ((y / window.innerHeight) * 2 - 1).toFixed(3));
     };

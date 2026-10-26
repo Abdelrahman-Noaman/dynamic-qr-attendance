@@ -18,9 +18,9 @@
   --font-serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
   --font-mono: "Space Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  --color-ink: #0a0612;
-  --color-ink-2: #140c24;
-  --color-ink-3: #1d1233;
+  --color-ink: #071426;
+  --color-ink-2: #0b2038;
+  --color-ink-3: #12304d;
   --color-violet: #7b2cff;
   --color-violet-soft: #b79cff;
   --color-lime: #c8ff2e;
@@ -44,7 +44,6 @@
   --animate-scan: scan 1.15s cubic-bezier(0.55, 0, 0.35, 1) both;
   --animate-shake: shake 0.55s both;
   --animate-pop: pop 0.55s cubic-bezier(0.3, 1.6, 0.5, 1) both;
-  --animate-drift: drift 24s ease-in-out infinite alternate;
   --animate-ping-soft: ping-soft 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
   --animate-twinkle: twinkle 3.2s ease-in-out infinite;
   --animate-dot: dot 1.1s ease-in-out infinite;
@@ -140,14 +139,6 @@
       transform: none;
     }
   }
-  @keyframes drift {
-    from {
-      transform: translate3d(-4%, -3%, 0) scale(1);
-    }
-    to {
-      transform: translate3d(5%, 6%, 0) scale(1.18);
-    }
-  }
   @keyframes ping-soft {
     0% {
       transform: scale(1);
@@ -183,8 +174,6 @@
 }
 
 :root {
-  --mx: 70vw;
-  --my: 22vh;
   --px: 0;
   --py: 0;
   color-scheme: dark;
@@ -212,22 +201,6 @@ body {
 :focus-visible {
   outline: 3px solid var(--color-lime);
   outline-offset: 4px;
-}
-
-/* ---------- Texture ---------- */
-.grain {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.6'/%3E%3C/svg%3E");
-  opacity: 0.1;
-  mix-blend-mode: overlay;
-}
-
-.grid-lines {
-  background-image:
-    linear-gradient(to right, rgba(245, 240, 230, 0.06) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(245, 240, 230, 0.06) 1px, transparent 1px);
-  background-size: 72px 72px;
-  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 55% 30%, #000 20%, transparent 78%);
-  mask-image: radial-gradient(ellipse 70% 60% at 55% 30%, #000 20%, transparent 78%);
 }
 
 @utility hatch {
@@ -305,7 +278,7 @@ body {
   outline: none;
 }
 .dqr-map .leaflet-control-attribution {
-  background: rgba(10, 6, 18, 0.78) !important;
+  background: rgba(7, 20, 38, 0.9) !important;
   color: rgba(245, 240, 230, 0.5) !important;
   font-size: 9px;
   padding: 2px 6px;
@@ -315,7 +288,7 @@ body {
 }
 .dqr-map .leaflet-bar a,
 .dqr-map .leaflet-bar a:hover {
-  background: rgba(20, 12, 36, 0.92);
+  background: rgba(11, 32, 56, 0.94);
   color: var(--color-cream);
   border-bottom-color: rgba(255, 255, 255, 0.14);
 }
