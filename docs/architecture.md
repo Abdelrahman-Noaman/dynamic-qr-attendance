@@ -81,30 +81,34 @@ The workflow uses n8n workflow static data for the currently active session. Thi
 
 ### Google Sheets
 
-Each session owns a spreadsheet, created by the workflow when the professor
-presses Start: one `Attendance` tab, the 17 Attendance headers written by the
-workflow (bold, frozen), and a plain-text `Student ID` column so identifiers
-keep their leading zeros. The session state holds the workbook id, tab, title,
-editor URL and `.xlsx` export URL; the workbook history keeps the last 20 so a
-sheet can still be resolved after the session is stopped.
+Each session owns a spreadsheet, **copied from an Attendance template** the
+professor designs once: pressing Start duplicates the template through the Drive
+`files.copy` API and renames the copy to `Attendance - <Lecture> - <Session ID>`.
+The copy therefore carries the template's own tab, header row and styling. The
+workflow reads the tab name and sheet id from the copy, verifies that row 1
+still holds the 17 columns it appends, and forces `Student ID` to plain text so
+identifiers keep their leading zeros — it deliberately restyles nothing else.
+The session state holds the workbook id, tab, title, template id, editor URL and
+`.xlsx` export URL; the workbook history keeps the last 20 so a sheet can still
+be resolved after the session is stopped.
 
-That session's `Attendance` tab is used both to look up existing attendance for
-a session and to append new attendance rows. A submission is rejected when
-either the `(Session ID, Student ID)` or `(Session ID, Device ID)` pair already
-exists. The three sheet nodes take their document id from
-`Validate Submission`, so nothing is ever written to another session's
-workbook. A session with no workbook of its own — only possible for one already
-running when the workbook step was introduced — falls back to the shared
-prototype spreadsheet.
+That session's tab is used both to look up existing attendance for a session and
+to append new attendance rows. A submission is rejected when either the
+`(Session ID, Student ID)` or `(Session ID, Device ID)` pair already exists. The
+three sheet nodes take their document id from `Validate Submission`, so nothing
+is ever written to another session's workbook. A session with no workbook of its
+own — only possible for one already running when the workbook step was
+introduced — falls back to the shared prototype spreadsheet.
 
-The header row is written by the Google Sheets node itself (an auto-map append
-into the empty tab, which makes n8n write the input keys as row 1), so it uses
-the same credential and transport as the attendance rows. A plain HTTP Request
-node then applies the cosmetic formatting, and a second serves `/dqr-export` by
-calling the Drive export endpoint. Both reuse the Google Sheets OAuth2
-credential (`drive.file` + `spreadsheets` scopes), so no additional credential
-is configured — and if either fails, the session still works: formatting is
-skipped and the dashboard falls back to Google's own export link.
+The copy, the metadata read, the header read and `/dqr-export` are plain HTTP
+Request nodes that reuse the Google Sheets OAuth2 credential, so no additional
+credential is configured — but that credential needs the **Drive scope**
+(`https://www.googleapis.com/auth/drive`), because the default `drive.file`
+scope only covers files the app created itself. Failures are surfaced rather
+than swallowed: a failed copy or a template missing a column refuses the start
+with a reason the dashboard prints, while a failed cosmetic formatting call is
+skipped and the session still works, with the dashboard falling back to
+Google's own export link.
 
 ### Gmail
 

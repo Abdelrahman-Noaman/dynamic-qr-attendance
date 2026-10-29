@@ -714,33 +714,51 @@ professor-dashboard.html?key=YOUR_PROF_KEY
 > the same directory. Opening `student-attendance.html` straight from the
 > filesystem will not work because module imports require an HTTP(S) origin.
 
-### 4. Google Sheets
+### 4. Google Sheets — the Attendance template
 
-**Nothing to prepare.** Pressing **Start** creates a brand-new spreadsheet for
-that session, named `Attendance - <Lecture> - <Session ID>`, with a single
-`Attendance` tab and this header row:
+**Every session gets its own spreadsheet, copied from a template you design once.**
+
+Pressing **Start** duplicates the template spreadsheet through the Drive
+`files.copy` API and renames the copy to `Attendance - <Lecture> - <Session ID>`.
+The result looks exactly like the template: its tab, its header row, its colours
+and fonts. The workflow never writes headers itself — it reads the tab name from
+the copy, checks the columns it appends are present, and formats **Student ID**
+as **plain text** so student IDs keep their leading zeros.
+
+Two things to set up:
+
+1. **Put your sheet design into a template spreadsheet.** The first tab of that
+   file becomes the Attendance tab, and its row 1 must contain these 17 headers
+   in this order, because that is where attendance is appended:
 
 ```text
 Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status | Instructor Latitude | Instructor Longitude | Student Latitude | Student Longitude | Distance (m) | Instructor GPS Accuracy (m) | Student GPS Accuracy (m) | Location Status | Location Timestamp
 ```
 
-The workflow writes the headers itself (bold, frozen first row) and formats
-**Student ID** as **plain text**, so student IDs keep their leading zeros
-without any manual column setup.
+2. **Set the template's ID in `Create Session`** — the `TEMPLATE_SPREADSHEET_ID`
+   constant, currently `1opH4L0ThuVkYHjQs-zQ_WPRgCJkuaRnQu_oqKHKm2uk`. It is the
+   ID inside the template URL:
+   `https://docs.google.com/spreadsheets/d/<THIS_PART>/edit`.
 
-Requirements:
+**The Google credential needs the Drive scope.** Add
+`https://www.googleapis.com/auth/drive` to the OAuth scopes of the *Google Sheets
+OAuth2* credential and reconnect it. The default `drive.file` scope only covers
+files the app created itself, so without it the copy fails with a 403 and
+**Start** reports `WORKBOOK_CREATE_FAILED` naming the scope. `Copy Attendance
+Template`, `Read Workbook Meta`, `Verify Attendance Headers` and the
+`/dqr-export` download all reuse that same credential — no extra credential is
+needed.
 
-- The Google Sheets OAuth2 credential must be allowed to **create**
-  spreadsheets. The default n8n scopes (`drive.file` + `spreadsheets` +
-  `drive.metadata`) are enough — the two HTTP nodes and the `/dqr-export`
-  download reuse that same credential, so no extra credential is needed.
-- Workbooks are created in the Drive of the Google account behind that
-  credential, one per session. They are not deleted by the workflow.
+Copies land in the Drive of the Google account behind that credential, one per
+session, and are not deleted by the workflow.
 
-The original shared spreadsheet (`YOUR_GOOGLE_SHEET_ID`) is now only a
-**fallback** for a session that has no workbook of its own — for example a
-session that was already running when the workflow was updated. Sessions
-started by this version never write to it.
+If the template's tab is missing one of the 17 columns, **Start** is refused with
+`WORKBOOK_TEMPLATE_MISMATCH` plus the missing column names, rather than starting
+a session attendance could not be written to.
+
+The original shared spreadsheet (`YOUR_GOOGLE_SHEET_ID`) remains a **fallback**
+for a session that has no workbook of its own — for example a session that was
+already running when the workflow was updated.
 
 ### 5. Activate and Test
 

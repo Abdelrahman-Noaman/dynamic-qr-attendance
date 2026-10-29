@@ -97,7 +97,7 @@ assert.ok(workflow.connections["Webhook Start"].main[0].some((edge) => edge.node
 // A start now runs through the per-session workbook before it is answered, and
 // a rejected start is answered straight away without creating a spreadsheet.
 assert.ok(workflow.connections["Create Session"].main[0].some((edge) => edge.node === "Start OK?"));
-assert.ok(workflow.connections["Start OK?"].main[0].some((edge) => edge.node === "Create Attendance Workbook"));
+assert.ok(workflow.connections["Start OK?"].main[0].some((edge) => edge.node === "Copy Attendance Template"));
 assert.ok(workflow.connections["Start OK?"].main[1].some((edge) => edge.node === "Respond Start"));
 assert.ok(workflow.connections["Activate Session"].main[0].some((edge) => edge.node === "Respond Start"));
 

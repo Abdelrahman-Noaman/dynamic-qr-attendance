@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "# ðŸ” Dynamic QR Attendance System\n\nAutomated attendance system for Data Security lectures using short-lived QR tokens.\n\n### How it works\n\n* Professor starts an attendance session.\n* n8n generates a unique session and a QR token.\n* The QR token automatically rotates every **10 seconds**.\n* Students scan the current QR and submit their name, student ID, and email.\n* n8n validates the session and token before accepting the attendance.\n* A signed temporary ticket allows students enough time to complete the form without requiring the QR token to remain valid.\n* Duplicate attendance for the same student and session is rejected.\n* Pressing **Start** creates a **brand-new Google Sheet** for that session, with the Attendance headers already in place.\n* Valid attendance is recorded automatically in **that session's Google Sheet**.\n* A professional **confirmation email** is sent to the student immediately after successful registration.\n* When the professor stops the session, all pending tickets become invalid, new submissions are rejected, and the dashboard shows that session's sheet with an Excel (.xlsx) download.\n\n### Main Components\n\n**n8n** â†’ Automation & validation\n**Dynamic QR** â†’ Short-lived access token\n**Google Sheets** â†’ Attendance records\n**Gmail** â†’ Attendance confirmation\n**HTML Pages** â†’ Professor dashboard & student submission page\n\n### Security Concept\n\nThe QR code itself is not a permanent attendance link. Each QR contains a short-lived token that expires after 10 seconds, reducing the risk of students using an old QR code outside the classroom.\n\n> **Start â†’ Generate â†’ Rotate â†’ Scan â†’ Validate â†’ Record â†’ Confirm â†’ Stop**\n",
+        "content": "# ðŸ” Dynamic QR Attendance System\n\nAutomated attendance system for Data Security lectures using short-lived QR tokens.\n\n### How it works\n\n* Professor starts an attendance session.\n* n8n generates a unique session and a QR token.\n* The QR token automatically rotates every **10 seconds**.\n* Students scan the current QR and submit their name, student ID, and email.\n* n8n validates the session and token before accepting the attendance.\n* A signed temporary ticket allows students enough time to complete the form without requiring the QR token to remain valid.\n* Duplicate attendance for the same student and session is rejected.\n* Pressing **Start** **copies the Attendance TEMPLATE spreadsheet** into a new file for that session, so it looks exactly like the template.\n  The Google credential needs the **Drive scope** (`https://www.googleapis.com/auth/drive`) to be allowed to copy it.\n* Valid attendance is recorded automatically in **that session's Google Sheet**.\n* A professional **confirmation email** is sent to the student immediately after successful registration.\n* When the professor stops the session, all pending tickets become invalid, new submissions are rejected, and the dashboard shows that session's sheet with an Excel (.xlsx) download.\n\n### Main Components\n\n**n8n** â†’ Automation & validation\n**Dynamic QR** â†’ Short-lived access token\n**Google Sheets** â†’ Attendance records\n**Gmail** â†’ Attendance confirmation\n**HTML Pages** â†’ Professor dashboard & student submission page\n\n### Security Concept\n\nThe QR code itself is not a permanent attendance link. Each QR contains a short-lived token that expires after 10 seconds, reducing the risk of students using an old QR code outside the classroom.\n\n> **Start â†’ Generate â†’ Rotate â†’ Scan â†’ Validate â†’ Record â†’ Confirm â†’ Stop**\n",
         "height": 588,
         "width": 1036
       },
@@ -37,7 +37,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const KEY = 'MySecretyKey2005';\nconst b = $input.first().json.body || {};\n\n// Distance check only. Never raised to compensate for poor GPS.\nconst ATTENDANCE_RADIUS_METERS = 100;\n// Student accuracy ceiling. Also applied to any GPS-sourced reference.\nconst MAX_GPS_ACCURACY_METERS = 50;\nconst MAX_LOCATION_AGE_SECONDS = 30;\nconst FUTURE_TIMESTAMP_TOLERANCE_MS = 60000;\n// A map-confirmed lecture hall is an administrative reference and carries no\n// GPS accuracy requirement, but it must be recent.\nconst LECTURE_LOCATION_MAX_AGE_MINUTES = 60;\n\nif (b.key !== KEY) return [{ json: { ok: false, error: 'unauthorized' } }];\n\nconst blank = value => value === undefined || value === null || String(value).trim() === '';\nconst number = value => typeof value === 'number' ? value : Number(value);\nconst now = Date.now();\nconst fail = (reason, extra = {}) => [{ json: Object.assign({ ok: false, error: reason, locationReason: reason }, extra) }];\n\n// 'map' = professor confirmed the lecture hall on the map (default for this UI).\n// 'gps' = legacy device-GPS reference, still held to the 50 m accuracy target.\nconst source = String(b.instructorLocationSource || 'map').trim().toLowerCase() === 'gps' ? 'gps' : 'map';\n\nif (blank(b.instructorLatitude) || blank(b.instructorLongitude)) {\n  return fail(source === 'map' ? 'LECTURE_LOCATION_MISSING' : 'LOCATION_UNAVAILABLE', { locationSource: source });\n}\n\nconst latitude = number(b.instructorLatitude);\nconst longitude = number(b.instructorLongitude);\nconst coordinatesValid = Number.isFinite(latitude) && Number.isFinite(longitude)\n  && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;\nif (!coordinatesValid) {\n  return fail(source === 'map' ? 'LECTURE_LOCATION_INVALID' : 'INVALID_LOCATION', { locationSource: source });\n}\n\nlet accuracy = null;\nlet confirmedAt = null;\n\nif (source === 'map') {\n  confirmedAt = number(b.instructorLocationConfirmedAt);\n  if (!Number.isFinite(confirmedAt) || confirmedAt <= 0 || confirmedAt > now + FUTURE_TIMESTAMP_TOLERANCE_MS) {\n    return fail('LECTURE_LOCATION_INVALID', { locationSource: source });\n  }\n  if (now - confirmedAt > LECTURE_LOCATION_MAX_AGE_MINUTES * 60000) {\n    return fail('LECTURE_LOCATION_STALE', { locationSource: source, lectureLocationMaxAgeMinutes: LECTURE_LOCATION_MAX_AGE_MINUTES });\n  }\n} else {\n  accuracy = number(b.instructorAccuracy);\n  const timestamp = number(b.instructorLocationTimestamp);\n  if (!Number.isFinite(accuracy) || accuracy <= 0) return fail('INVALID_LOCATION', { locationSource: source });\n  if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp > now + FUTURE_TIMESTAMP_TOLERANCE_MS) {\n    return fail('INVALID_LOCATION', { locationSource: source });\n  }\n  if (now - timestamp > MAX_LOCATION_AGE_SECONDS * 1000) return fail('STALE_LOCATION', { locationSource: source });\n  if (accuracy > MAX_GPS_ACCURACY_METERS) return fail('LOW_ACCURACY', { locationSource: source, maxAccuracyMeters: MAX_GPS_ACCURACY_METERS });\n  confirmedAt = timestamp;\n}\n\n// CONFIRMED means \"the professor confirmed this lecture hall on the map\".\n// It is not a statement about the professor's device accuracy or presence.\nconst locationQualityStatus = source === 'map' ? 'CONFIRMED' : 'VERIFIED';\n\n// ---- Per-session attendance workbook -------------------------------------\n// Every session gets its own spreadsheet with the same Attendance columns, so\n// the professor downloads one clean file per lecture instead of filtering a\n// shared sheet. The plan is built here and executed by the nodes that follow.\nconst ATTENDANCE_TAB = 'Attendance';\nconst ATTENDANCE_HEADERS = ['Session ID', 'Student ID', 'Device ID', 'Student Name', 'Email', 'Attendance Time', 'Token', 'Status', 'Instructor Latitude', 'Instructor Longitude', 'Student Latitude', 'Student Longitude', 'Distance (m)', 'Instructor GPS Accuracy (m)', 'Student GPS Accuracy (m)', 'Location Status', 'Location Timestamp'];\n// Google Drive rejects these characters in file names.\nconst safeTitle = value => String(value).replace(/[\\\\/?*[\\]:]/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 80);\n\nconst rand = (n) => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };\nconst wf = $getWorkflowStaticData('global');\nconst sessionId = 'S' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + rand(4);\nwf.session = {\n  active: true,\n  sessionId,\n  lecture: String(b.lecture || 'Lecture').trim(),\n  token: rand(6),\n  issuedAt: Date.now(),\n  location: { latitude, longitude, accuracy, source, confirmedAt },\n  locationQualityStatus,\n  locationConfig: { radiusMeters: ATTENDANCE_RADIUS_METERS, maxAccuracyMeters: MAX_GPS_ACCURACY_METERS, maxAgeSeconds: MAX_LOCATION_AGE_SECONDS },\n  locationStats: { verified: 0, outsideRadius: 0, rejected: 0 }\n};\nreturn [{ json: {\n  ok: true,\n  sessionId,\n  lecture: wf.session.lecture,\n  attendanceRadiusMeters: ATTENDANCE_RADIUS_METERS,\n  maxAccuracyMeters: MAX_GPS_ACCURACY_METERS,\n  maxLocationAgeSeconds: MAX_LOCATION_AGE_SECONDS,\n  lectureLocation: { latitude, longitude, source, confirmedAt },\n  locationQualityStatus,\n  workbookTitle: 'Attendance - ' + safeTitle(wf.session.lecture) + ' - ' + sessionId,\n  workbookTab: ATTENDANCE_TAB,\n  attendanceHeaders: ATTENDANCE_HEADERS\n} }];"
+        "jsCode": "const KEY = 'MySecretyKey2005';\nconst b = $input.first().json.body || {};\n\n// Distance check only. Never raised to compensate for poor GPS.\nconst ATTENDANCE_RADIUS_METERS = 100;\n// Student accuracy ceiling. Also applied to any GPS-sourced reference.\nconst MAX_GPS_ACCURACY_METERS = 50;\nconst MAX_LOCATION_AGE_SECONDS = 30;\nconst FUTURE_TIMESTAMP_TOLERANCE_MS = 60000;\n// A map-confirmed lecture hall is an administrative reference and carries no\n// GPS accuracy requirement, but it must be recent.\nconst LECTURE_LOCATION_MAX_AGE_MINUTES = 60;\n\nif (b.key !== KEY) return [{ json: { ok: false, error: 'unauthorized' } }];\n\nconst blank = value => value === undefined || value === null || String(value).trim() === '';\nconst number = value => typeof value === 'number' ? value : Number(value);\nconst now = Date.now();\nconst fail = (reason, extra = {}) => [{ json: Object.assign({ ok: false, error: reason, locationReason: reason }, extra) }];\n\n// 'map' = professor confirmed the lecture hall on the map (default for this UI).\n// 'gps' = legacy device-GPS reference, still held to the 50 m accuracy target.\nconst source = String(b.instructorLocationSource || 'map').trim().toLowerCase() === 'gps' ? 'gps' : 'map';\n\nif (blank(b.instructorLatitude) || blank(b.instructorLongitude)) {\n  return fail(source === 'map' ? 'LECTURE_LOCATION_MISSING' : 'LOCATION_UNAVAILABLE', { locationSource: source });\n}\n\nconst latitude = number(b.instructorLatitude);\nconst longitude = number(b.instructorLongitude);\nconst coordinatesValid = Number.isFinite(latitude) && Number.isFinite(longitude)\n  && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;\nif (!coordinatesValid) {\n  return fail(source === 'map' ? 'LECTURE_LOCATION_INVALID' : 'INVALID_LOCATION', { locationSource: source });\n}\n\nlet accuracy = null;\nlet confirmedAt = null;\n\nif (source === 'map') {\n  confirmedAt = number(b.instructorLocationConfirmedAt);\n  if (!Number.isFinite(confirmedAt) || confirmedAt <= 0 || confirmedAt > now + FUTURE_TIMESTAMP_TOLERANCE_MS) {\n    return fail('LECTURE_LOCATION_INVALID', { locationSource: source });\n  }\n  if (now - confirmedAt > LECTURE_LOCATION_MAX_AGE_MINUTES * 60000) {\n    return fail('LECTURE_LOCATION_STALE', { locationSource: source, lectureLocationMaxAgeMinutes: LECTURE_LOCATION_MAX_AGE_MINUTES });\n  }\n} else {\n  accuracy = number(b.instructorAccuracy);\n  const timestamp = number(b.instructorLocationTimestamp);\n  if (!Number.isFinite(accuracy) || accuracy <= 0) return fail('INVALID_LOCATION', { locationSource: source });\n  if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp > now + FUTURE_TIMESTAMP_TOLERANCE_MS) {\n    return fail('INVALID_LOCATION', { locationSource: source });\n  }\n  if (now - timestamp > MAX_LOCATION_AGE_SECONDS * 1000) return fail('STALE_LOCATION', { locationSource: source });\n  if (accuracy > MAX_GPS_ACCURACY_METERS) return fail('LOW_ACCURACY', { locationSource: source, maxAccuracyMeters: MAX_GPS_ACCURACY_METERS });\n  confirmedAt = timestamp;\n}\n\n// CONFIRMED means \"the professor confirmed this lecture hall on the map\".\n// It is not a statement about the professor's device accuracy or presence.\nconst locationQualityStatus = source === 'map' ? 'CONFIRMED' : 'VERIFIED';\n\n// ---- Per-session attendance workbook -------------------------------------\n// Every session gets its own spreadsheet with the same Attendance columns, so\n// the professor downloads one clean file per lecture instead of filtering a\n// shared sheet. The plan is built here and executed by the nodes that follow.\n// Every session's workbook is a copy of this template, so the generated\n// sheet looks exactly like it. The Google credential needs the Drive\n// scope (https://www.googleapis.com/auth/drive) to be allowed to copy it.\nconst TEMPLATE_SPREADSHEET_ID = '1opH4L0ThuVkYHjQs-zQ_WPRgCJkuaRnQu_oqKHKm2uk';\nconst ATTENDANCE_TAB = 'Attendance';\nconst ATTENDANCE_HEADERS = ['Session ID', 'Student ID', 'Device ID', 'Student Name', 'Email', 'Attendance Time', 'Token', 'Status', 'Instructor Latitude', 'Instructor Longitude', 'Student Latitude', 'Student Longitude', 'Distance (m)', 'Instructor GPS Accuracy (m)', 'Student GPS Accuracy (m)', 'Location Status', 'Location Timestamp'];\n// Google Drive rejects these characters in file names.\nconst safeTitle = value => String(value).replace(/[\\\\/?*[\\]:]/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 80);\n\nconst rand = (n) => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };\nconst wf = $getWorkflowStaticData('global');\nconst sessionId = 'S' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + rand(4);\nwf.session = {\n  active: true,\n  sessionId,\n  lecture: String(b.lecture || 'Lecture').trim(),\n  token: rand(6),\n  issuedAt: Date.now(),\n  location: { latitude, longitude, accuracy, source, confirmedAt },\n  locationQualityStatus,\n  locationConfig: { radiusMeters: ATTENDANCE_RADIUS_METERS, maxAccuracyMeters: MAX_GPS_ACCURACY_METERS, maxAgeSeconds: MAX_LOCATION_AGE_SECONDS },\n  locationStats: { verified: 0, outsideRadius: 0, rejected: 0 }\n};\nreturn [{ json: {\n  ok: true,\n  sessionId,\n  lecture: wf.session.lecture,\n  attendanceRadiusMeters: ATTENDANCE_RADIUS_METERS,\n  maxAccuracyMeters: MAX_GPS_ACCURACY_METERS,\n  maxLocationAgeSeconds: MAX_LOCATION_AGE_SECONDS,\n  lectureLocation: { latitude, longitude, source, confirmedAt },\n  locationQualityStatus,\n  workbookTitle: 'Attendance - ' + safeTitle(wf.session.lecture) + ' - ' + sessionId,\n  templateId: TEMPLATE_SPREADSHEET_ID,\n  workbookTab: ATTENDANCE_TAB,\n  attendanceHeaders: ATTENDANCE_HEADERS\n} }];"
       },
       "id": "c11e2f4f-9f89-4a70-a9d3-5dc2cc9b8eff",
       "name": "Create Session",
@@ -1106,23 +1106,29 @@
     },
     {
       "parameters": {
-        "resource": "spreadsheet",
-        "operation": "create",
-        "title": "={{ $('Create Session').first().json.workbookTitle }}",
-        "sheetsUi": {
-          "sheetValues": [
+        "method": "POST",
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $('Create Session').first().json.templateId }}/copy",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
             {
-              "title": "={{ $('Create Session').first().json.workbookTab }}",
-              "hidden": false
+              "name": "fields",
+              "value": "id,name,mimeType,webViewLink,createdTime"
             }
           ]
         },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $('Create Session').first().json.workbookTitle }) }}",
         "options": {}
       },
-      "id": "create-attendance-workbook",
-      "name": "Create Attendance Workbook",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
+      "id": "copy-attendance-template",
+      "name": "Copy Attendance Template",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         784,
         -112
@@ -1137,58 +1143,16 @@
     },
     {
       "parameters": {
-        "jsCode": "// Turns the fresh spreadsheet into this session's Attendance workbook.\n// The tab name comes from the create response - whatever Google actually\n// called it - so the header write can never target a tab that does not exist.\nconst XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';\nconst create = $input.first().json;\nconst start = $('Create Session').first().json;\n\nconst spreadsheetId = create.spreadsheetId;\nif (!spreadsheetId) {\n  const err = create.error || {};\n  return [{ json: {\n    ok: false,\n    error: 'WORKBOOK_CREATE_FAILED',\n    detail: String(err.message || err.description || 'The attendance spreadsheet could not be created.')\n  } }];\n}\n\nconst headers = Array.isArray(start.attendanceHeaders) ? start.attendanceHeaders.filter(h => String(h).trim() !== '') : [];\nif (!headers.length) {\n  return [{ json: { ok: false, error: 'WORKBOOK_INVALID_HEADERS', detail: 'The session did not provide the Attendance column list.' } }];\n}\n\n// Trust the spreadsheet that was really created, not the name we asked for.\nconst sheets = Array.isArray(create.sheets) ? create.sheets : [];\nconst firstSheet = sheets[0] && sheets[0].properties ? sheets[0].properties : {};\nconst tab = String(firstSheet.title || start.workbookTab || 'Attendance');\nconst sheetId = Number.isFinite(firstSheet.sheetId) ? firstSheet.sheetId : 0;\n\n// 0 -> A, 25 -> Z, 26 -> AA ...\nconst columnLetter = index => {\n  let n = index;\n  let letters = '';\n  do {\n    letters = String.fromCharCode(65 + (n % 26)) + letters;\n    n = Math.floor(n / 26) - 1;\n  } while (n >= 0);\n  return letters;\n};\n\n// A1 notation needs single quotes around a tab name with spaces or punctuation.\nconst quotedTab = /^[A-Za-z0-9_]+$/.test(tab) ? tab : \"'\" + tab.replace(/'/g, \"''\") + \"'\";\nconst range = quotedTab + '!A1:' + columnLetter(headers.length - 1) + '1';\n\n// Empty-valued row: on an empty tab the Google Sheets node writes these keys as\n// the header row and the empty values leave no visible data row behind.\nconst headerRowItem = {};\nheaders.forEach(header => { headerRowItem[header] = ''; });\n\nconst studentIdColumn = headers.indexOf('Student ID');\nconst requests = [\n  {\n    repeatCell: {\n      range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: headers.length },\n      cell: { userEnteredFormat: { textFormat: { bold: true } } },\n      fields: 'userEnteredFormat.textFormat.bold'\n    }\n  },\n  {\n    updateSheetProperties: {\n      properties: { sheetId, gridProperties: { frozenRowCount: 1 } },\n      fields: 'gridProperties.frozenRowCount'\n    }\n  }\n];\n// Student IDs are identifiers, not numbers: keep leading zeros.\nif (studentIdColumn >= 0) {\n  requests.splice(1, 0, {\n    repeatCell: {\n      range: { sheetId, startRowIndex: 1, endRowIndex: 1001, startColumnIndex: studentIdColumn, endColumnIndex: studentIdColumn + 1 },\n      cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },\n      fields: 'userEnteredFormat.numberFormat'\n    }\n  });\n}\n\nreturn [{ json: {\n  ok: true,\n  workbookId: spreadsheetId,\n  tab,\n  sheetId,\n  headers,\n  range,\n  headerRowItem,\n  title: (create.properties && create.properties.title) || start.workbookTitle,\n  url: create.spreadsheetUrl || ('https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/edit'),\n  xlsxUrl: 'https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/export?format=xlsx',\n  exportUrl: 'https://www.googleapis.com/drive/v3/files/' + spreadsheetId + '/export?mimeType=' + encodeURIComponent(XLSX_MIME),\n  batchUpdateUrl: 'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + ':batchUpdate',\n  formatBody: { requests }\n} }];"
+        "jsCode": "// Reads the copied workbook and works out where attendance goes.\n// The tab name and sheetId come from the copy itself, never from an assumed\n// \"Attendance\", so the template decides the layout.\nconst XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';\nconst meta = $input.first().json;\nconst copy = $('Copy Attendance Template').first().json;\nconst start = $('Create Session').first().json;\n\nconst failureOf = value => {\n  const err = (value && value.error) || {};\n  return String(err.message || err.description || err.httpCode || (typeof err === 'string' ? err : '') || '');\n};\n\nconst workbookId = meta.spreadsheetId || copy.id;\nif (!workbookId) {\n  const detail = failureOf(copy) || 'The template could not be copied.';\n  const hint = /403|401|permission|forbidden|insufficient|scope/i.test(detail)\n    ? ' The Google credential needs the Drive scope (https://www.googleapis.com/auth/drive) and access to the template.'\n    : '';\n  return [{ json: { ok: false, error: 'WORKBOOK_CREATE_FAILED', detail: detail + hint } }];\n}\n\nconst headers = Array.isArray(start.attendanceHeaders) ? start.attendanceHeaders.filter(h => String(h).trim() !== '') : [];\nif (!headers.length) {\n  return [{ json: { ok: false, error: 'WORKBOOK_INVALID_HEADERS', detail: 'The session did not provide the Attendance column list.' } }];\n}\n\nconst sheets = Array.isArray(meta.sheets) ? meta.sheets : [];\nconst firstSheet = sheets[0] && sheets[0].properties ? sheets[0].properties : {};\nif (!firstSheet.title) {\n  return [{ json: {\n    ok: false,\n    error: 'WORKBOOK_TAB_UNKNOWN',\n    detail: failureOf(meta) || 'The copied workbook did not report a tab name.'\n  } }];\n}\n\nconst tab = String(firstSheet.title);\nconst sheetId = Number.isFinite(firstSheet.sheetId) ? firstSheet.sheetId : 0;\n\n// A1 notation needs single quotes around a tab name with spaces or punctuation,\n// and the range must be encoded because it travels inside a URL.\nconst quotedTab = /^[A-Za-z0-9_]+$/.test(tab) ? tab : \"'\" + tab.replace(/'/g, \"''\") + \"'\";\nconst encodedTab = encodeURIComponent(quotedTab);\n\nconst studentIdColumn = headers.indexOf('Student ID');\nconst requests = [];\n// Student IDs are identifiers, not numbers: keep leading zeros. Everything else\n// about the look stays exactly as the template designed it.\nif (studentIdColumn >= 0) {\n  requests.push({\n    repeatCell: {\n      range: { sheetId, startRowIndex: 1, endRowIndex: 1001, startColumnIndex: studentIdColumn, endColumnIndex: studentIdColumn + 1 },\n      cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },\n      fields: 'userEnteredFormat.numberFormat'\n    }\n  });\n}\n\nreturn [{ json: {\n  ok: true,\n  workbookId,\n  tab,\n  sheetId,\n  headers,\n  templateId: start.templateId || null,\n  title: copy.name || (meta.properties && meta.properties.title) || start.workbookTitle,\n  url: copy.webViewLink || ('https://docs.google.com/spreadsheets/d/' + workbookId + '/edit'),\n  xlsxUrl: 'https://docs.google.com/spreadsheets/d/' + workbookId + '/export?format=xlsx',\n  exportUrl: 'https://www.googleapis.com/drive/v3/files/' + workbookId + '/export?mimeType=' + encodeURIComponent(XLSX_MIME),\n  headerUrl: 'https://sheets.googleapis.com/v4/spreadsheets/' + workbookId + '/values/' + encodedTab + '!1:1',\n  batchUpdateUrl: 'https://sheets.googleapis.com/v4/spreadsheets/' + workbookId + ':batchUpdate',\n  formatBody: { requests }\n} }];"
       },
       "id": "prepare-sheet-setup",
       "name": "Prepare Sheet Setup",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1040,
+        1296,
         -112
       ]
-    },
-    {
-      "parameters": {
-        "resource": "sheet",
-        "operation": "append",
-        "documentId": {
-          "__rl": true,
-          "value": "={{ $('Prepare Sheet Setup').first().json.workbookId }}",
-          "mode": "id"
-        },
-        "sheetName": {
-          "__rl": true,
-          "value": "={{ $('Prepare Sheet Setup').first().json.tab }}",
-          "mode": "name"
-        },
-        "columns": {
-          "mappingMode": "autoMapInputData",
-          "value": {},
-          "matchingColumns": [],
-          "schema": [],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        },
-        "options": {
-          "cellFormat": "RAW"
-        }
-      },
-      "id": "write-attendance-headers",
-      "name": "Write Attendance Headers",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
-      "position": [
-        1552,
-        -112
-      ],
-      "credentials": {
-        "googleSheetsOAuth2Api": {
-          "id": "0FjaveI9h7tDArdS",
-          "name": "Google Sheets account"
-        }
-      },
-      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
@@ -1220,7 +1184,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// The session only goes live once its own workbook exists and has the\n// Attendance header row. Otherwise attendance would have nowhere to be\n// written, so the start is rolled back instead of half-starting.\nconst prep = $('Prepare Sheet Setup').first().json;\nconst headerWrite = $('Write Attendance Headers').first().json;\nconst formatWrite = $('Format Attendance Sheet').first().json;\nconst plan = $('Create Session').first().json;\nconst { workbookTitle, workbookTab, attendanceHeaders, ...start } = plan;\nconst wf = $getWorkflowStaticData('global');\n\n// Pull whatever the failing node reported so the professor sees a real reason.\nconst failureOf = value => {\n  const err = (value && value.error) || {};\n  return String(err.message || err.description || err.httpCode || (typeof err === 'string' ? err : '') || '');\n};\n\nconst abort = (error, detail, extra = {}) => {\n  delete wf.session;\n  return [{ json: Object.assign({ ok: false, error, detail: String(detail || '') }, extra) }];\n};\n\nif (!prep || !prep.ok || !prep.workbookId) {\n  return abort((prep && prep.error) || 'WORKBOOK_CREATE_FAILED', prep && prep.detail);\n}\n\nconst headersWritten = Boolean(headerWrite) && !headerWrite.error\n  && prep.headers.every(header => Object.prototype.hasOwnProperty.call(headerWrite, header));\nif (!headersWritten) {\n  return abort(\n    'WORKBOOK_SETUP_FAILED',\n    failureOf(headerWrite) || 'The Attendance header row could not be written into \"' + prep.tab + '\".',\n    { failedStep: 'WRITE_HEADERS', tab: prep.tab, range: prep.range, sheetUrl: prep.url }\n  );\n}\n\nconst workbook = {\n  id: prep.workbookId,\n  tab: prep.tab,\n  title: prep.title,\n  url: prep.url,\n  xlsxUrl: prep.xlsxUrl,\n  headers: prep.headers,\n  createdAt: Date.now(),\n  // Cosmetic-only: bold + frozen header and the plain-text Student ID column.\n  formatted: Boolean(formatWrite && !formatWrite.error && formatWrite.replies)\n};\n\nif (wf.session) wf.session.workbook = workbook;\nconst history = Array.isArray(wf.workbooks) ? wf.workbooks : [];\nhistory.push({\n  sessionId: wf.session ? wf.session.sessionId : start.sessionId,\n  lecture: wf.session ? wf.session.lecture : start.lecture,\n  id: workbook.id,\n  tab: workbook.tab,\n  title: workbook.title,\n  url: workbook.url,\n  xlsxUrl: workbook.xlsxUrl,\n  createdAt: workbook.createdAt\n});\nwf.workbooks = history.slice(-20);\n\nreturn [{ json: Object.assign({}, start, {\n  attendanceSheet: {\n    sessionId: wf.session ? wf.session.sessionId : start.sessionId,\n    tab: workbook.tab,\n    title: workbook.title,\n    url: workbook.url,\n    xlsxUrl: workbook.xlsxUrl\n  }\n}) }];"
+        "jsCode": "// The session only goes live once its own copy of the template exists and that\n// copy still carries every column the workflow appends. Otherwise attendance\n// would have nowhere to be written, so the start is rolled back.\nconst prep = $('Prepare Sheet Setup').first().json;\nconst headerRead = $('Verify Attendance Headers').first().json;\nconst formatWrite = $('Format Attendance Sheet').first().json;\nconst plan = $('Create Session').first().json;\nconst { workbookTitle, templateId, workbookTab, attendanceHeaders, ...start } = plan;\nconst wf = $getWorkflowStaticData('global');\n\nconst failureOf = value => {\n  const err = (value && value.error) || {};\n  return String(err.message || err.description || err.httpCode || (typeof err === 'string' ? err : '') || '');\n};\n\nconst abort = (error, detail, extra = {}) => {\n  delete wf.session;\n  return [{ json: Object.assign({ ok: false, error, detail: String(detail || '') }, extra) }];\n};\n\nif (!prep || !prep.ok || !prep.workbookId) {\n  return abort((prep && prep.error) || 'WORKBOOK_CREATE_FAILED', prep && prep.detail);\n}\n\n// The template owns the header row. Only a *successful* read that shows missing\n// columns is a real problem - a failed read must not block the session.\nlet headersVerified = false;\nconst firstRow = Array.isArray(headerRead && headerRead.values) && headerRead.values.length\n  ? (headerRead.values[0] || []).map(value => String(value === undefined || value === null ? '' : value).trim())\n  : null;\nif (firstRow) {\n  const present = new Set(firstRow.filter(Boolean));\n  const missing = prep.headers.filter(header => !present.has(String(header).trim()));\n  if (missing.length) {\n    return abort(\n      'WORKBOOK_TEMPLATE_MISMATCH',\n      'The template tab \"' + prep.tab + '\" is missing: ' + missing.join(', '),\n      { tab: prep.tab, sheetUrl: prep.url, templateId: prep.templateId }\n    );\n  }\n  headersVerified = true;\n}\n\nconst workbook = {\n  id: prep.workbookId,\n  tab: prep.tab,\n  title: prep.title,\n  url: prep.url,\n  xlsxUrl: prep.xlsxUrl,\n  headers: prep.headers,\n  templateId: prep.templateId,\n  headersVerified,\n  createdAt: Date.now(),\n  // Cosmetic-only: keeps Student ID plain text so leading zeros survive.\n  formatted: Boolean(formatWrite && !formatWrite.error && formatWrite.replies)\n};\n\nif (wf.session) wf.session.workbook = workbook;\nconst history = Array.isArray(wf.workbooks) ? wf.workbooks : [];\nhistory.push({\n  sessionId: wf.session ? wf.session.sessionId : start.sessionId,\n  lecture: wf.session ? wf.session.lecture : start.lecture,\n  id: workbook.id,\n  tab: workbook.tab,\n  title: workbook.title,\n  url: workbook.url,\n  xlsxUrl: workbook.xlsxUrl,\n  createdAt: workbook.createdAt\n});\nwf.workbooks = history.slice(-20);\n\nreturn [{ json: Object.assign({}, start, {\n  attendanceSheet: {\n    sessionId: wf.session ? wf.session.sessionId : start.sessionId,\n    tab: workbook.tab,\n    title: workbook.title,\n    url: workbook.url,\n    xlsxUrl: workbook.xlsxUrl\n  }\n}) }];"
       },
       "id": "activate-session",
       "name": "Activate Session",
@@ -1364,16 +1328,60 @@
     },
     {
       "parameters": {
-        "jsCode": "// The Google Sheets node maps input keys to columns, so the header row is\n// written by feeding it one item whose keys are the Attendance columns.\nconst prep = $('Prepare Sheet Setup').first().json;\nreturn [{ json: prep && prep.ok && prep.headerRowItem ? prep.headerRowItem : {} }];"
+        "method": "GET",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $('Copy Attendance Template').first().json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "spreadsheetId,properties.title,sheets.properties"
+            }
+          ]
+        },
+        "options": {}
       },
-      "id": "header-row-item",
-      "name": "Header Row",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "read-workbook-meta",
+      "name": "Read Workbook Meta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
-        1296,
+        1040,
         -112
-      ]
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0FjaveI9h7tDArdS",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Prepare Sheet Setup').first().json.headerUrl }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "options": {}
+      },
+      "id": "verify-attendance-headers",
+      "name": "Verify Attendance Headers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1552,
+        -112
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0FjaveI9h7tDArdS",
+          "name": "Google Sheets account"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -1682,7 +1690,7 @@
       "main": [
         [
           {
-            "node": "Create Attendance Workbook",
+            "node": "Copy Attendance Template",
             "type": "main",
             "index": 0
           }
@@ -1696,33 +1704,11 @@
         ]
       ]
     },
-    "Create Attendance Workbook": {
-      "main": [
-        [
-          {
-            "node": "Prepare Sheet Setup",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Prepare Sheet Setup": {
       "main": [
         [
           {
-            "node": "Header Row",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Write Attendance Headers": {
-      "main": [
-        [
-          {
-            "node": "Format Attendance Sheet",
+            "node": "Verify Attendance Headers",
             "type": "main",
             "index": 0
           }
@@ -1809,11 +1795,33 @@
         ]
       ]
     },
-    "Header Row": {
+    "Copy Attendance Template": {
       "main": [
         [
           {
-            "node": "Write Attendance Headers",
+            "node": "Read Workbook Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Workbook Meta": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sheet Setup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Attendance Headers": {
+      "main": [
+        [
+          {
+            "node": "Format Attendance Sheet",
             "type": "main",
             "index": 0
           }

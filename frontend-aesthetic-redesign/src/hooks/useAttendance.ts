@@ -388,9 +388,11 @@ export function useAttendance(key: string | null) {
         setStatus(
           reason === "unauthorized"
             ? "Session start rejected: wrong key"
-            : reason.startsWith("WORKBOOK_")
-              ? `Session not started — its attendance sheet could not be created (${reason})${detail}`
-              : `Session start rejected: ${reason}${detail}`,
+            : reason === "WORKBOOK_TEMPLATE_MISMATCH"
+              ? `Session not started — the template sheet is missing columns${detail}`
+              : reason.startsWith("WORKBOOK_")
+                ? `Session not started — its attendance sheet could not be created (${reason})${detail}`
+                : `Session start rejected: ${reason}${detail}`,
           "error",
         );
         setStartDisabled(false);

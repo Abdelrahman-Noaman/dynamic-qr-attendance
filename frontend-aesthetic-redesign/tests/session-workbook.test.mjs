@@ -1,9 +1,8 @@
-// One Google Sheet per attendance session.
+// One Google Sheet per attendance session, copied from the professor's template.
 //
-// Every start must produce its own workbook (same Attendance columns as the
-// shared prototype sheet), attendance must be appended to *that* workbook, and
-// the stop must hand the professor the sheet plus a .xlsx download. The real
-// n8n code nodes are executed here with mocked n8n globals.
+// Every start must duplicate the template workbook, attendance must be appended
+// to *that* copy, and the stop must hand the professor the sheet plus a .xlsx
+// download. The real n8n code nodes are executed here with mocked n8n globals.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
@@ -21,6 +20,7 @@ const targets = (from, output = 0) =>
 
 const PROF_KEY = "MySecretyKey2005";
 const LEGACY_SHEET_ID = "1W4Q8HrjGveP1jrjUzwho9aO7nRPPPDwwhfW7C1fdbD0";
+const TEMPLATE_ID = "1opH4L0ThuVkYHjQs-zQ_WPRgCJkuaRnQu_oqKHKm2uk";
 const HALL = { latitude: 29.99625519, longitude: 30.96586222 };
 const SHEET_COLUMNS = Object.keys(node("Save Attendance").parameters.columns.value);
 
@@ -50,18 +50,28 @@ function startBody(overrides = {}) {
   };
 }
 
-const createdSpreadsheet = (spreadsheetId = "1AbCdEfGhIjKlMnOpQrStUvWxYz01234567890ab", title = "Attendance - Data Security") => ({
-  spreadsheetId,
-  spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
-  properties: { title },
-  sheets: [{ properties: { sheetId: 0, title: "Attendance", index: 0 } }],
+const COPIED_ID = "1AbCdEfGhIjKlMnOpQrStUvWxYz01234567890ab";
+
+/** What Drive files.copy returns for a successful copy. */
+const copiedTemplate = (title = "Attendance - Data Security") => ({
+  kind: "drive#file",
+  id: COPIED_ID,
+  name: title,
+  mimeType: "application/vnd.google-apps.spreadsheet",
+  webViewLink: `https://docs.google.com/spreadsheets/d/${COPIED_ID}/edit`,
 });
 
-/** A successful Google Sheets append echoes the item it was given. */
-const headerWriteResponse = (prepared) => prepared.output.headerRowItem;
+/** What the Sheets metadata call returns for the copy. */
+const workbookMeta = (tab = "Attendance", sheetId = 0) => ({
+  spreadsheetId: COPIED_ID,
+  properties: { title: "Attendance - Data Security" },
+  sheets: [{ properties: { sheetId, title: tab, index: 0 } }],
+});
 
-/** Start -> create workbook -> prepare -> write headers -> format -> activate. */
-function startSession({ lecture = "Data Security", createResult, headerWrite, formatWrite, body } = {}) {
+const headerRead = (headers = SHEET_COLUMNS) => ({ range: `${"Attendance"}!1:1`, values: [headers] });
+
+/** Start -> copy template -> read meta -> prepare -> verify -> format -> activate. */
+function startSession({ lecture = "Data Security", copyResult, metaResult, headerReadResult, formatWrite, body } = {}) {
   const staticData = {};
   const started = runCodeNode("Create Session", {
     input: { body: body ?? startBody({ lecture }) },
@@ -69,31 +79,31 @@ function startSession({ lecture = "Data Security", createResult, headerWrite, fo
   });
   if (!started.output.ok) return { started, staticData };
 
-  const createJson = createResult ?? createdSpreadsheet(undefined, started.output.workbookTitle);
+  const copyJson = copyResult ?? copiedTemplate(started.output.workbookTitle);
+  // A failed copy leaves the metadata call with no id, so it fails as well.
+  const metaJson =
+    metaResult ?? (copyJson.error ? { error: { message: "400: Requested entity was not found" } } : workbookMeta());
+
   const prepared = runCodeNode("Prepare Sheet Setup", {
-    input: createJson,
+    input: metaJson,
     staticData,
-    outputs: { "Create Session": started.output },
+    outputs: { "Create Session": started.output, "Copy Attendance Template": copyJson },
   });
 
-  const headerRow = runCodeNode("Header Row", {
-    staticData,
-    outputs: { "Prepare Sheet Setup": prepared.output },
-  }).output;
-
-  const formats = formatWrite ?? { spreadsheetId: createJson.spreadsheetId, replies: [{}, {}, {}] };
+  const headers = headerReadResult ?? headerRead();
+  const formats = formatWrite ?? { spreadsheetId: COPIED_ID, replies: [{}] };
   const activated = runCodeNode("Activate Session", {
     input: formats,
     staticData,
     outputs: {
       "Create Session": started.output,
       "Prepare Sheet Setup": prepared.output,
-      "Write Attendance Headers": headerWrite ?? headerWriteResponse({ output: { headerRowItem: headerRow } }),
+      "Verify Attendance Headers": headers,
       "Format Attendance Sheet": formats,
     },
   });
 
-  return { started, prepared, activated, staticData, createJson, headerRow };
+  return { started, prepared, activated, staticData, copyJson };
 }
 
 function submitInput(session, overrides = {}) {
@@ -123,16 +133,16 @@ const submit = (session, overrides = {}) =>
   }).output;
 
 // ============================================================
-// Start: the session plans its own workbook
+// Start: the session copies the template
 // ============================================================
 
-test("Create Session plans a workbook titled after the lecture and the session", () => {
+test("Create Session plans a copy of the template, named after the session", () => {
   const { output } = runCodeNode("Create Session", { input: { body: startBody() } });
 
   assert.equal(output.ok, true);
+  assert.equal(output.templateId, TEMPLATE_ID);
   assert.match(output.workbookTitle, /^Attendance - Data Security - S\d{8}-[A-Z0-9]{4}$/);
   assert.ok(output.workbookTitle.endsWith(output.sessionId), "the title carries the session id");
-  assert.equal(output.workbookTab, "Attendance");
 });
 
 test("two sessions never plan the same workbook title", () => {
@@ -152,7 +162,7 @@ test("Drive-hostile characters are stripped from the workbook title", () => {
   assert.match(output.workbookTitle, /^Attendance - Data Security week 3 4 - S\d{8}-[A-Z0-9]{4}$/);
 });
 
-test("the planned headers are exactly the columns the workflow appends", () => {
+test("the columns the workflow appends are exactly the 17 Attendance headers", () => {
   const { output } = runCodeNode("Create Session", { input: { body: startBody() } });
   const schemaIds = node("Save Attendance").parameters.columns.schema.map((column) => column.id);
 
@@ -161,9 +171,9 @@ test("the planned headers are exactly the columns the workflow appends", () => {
   assert.equal(output.attendanceHeaders.length, 17);
 });
 
-test("a rejected start never reaches the spreadsheet node", () => {
+test("a rejected start never reaches the Drive copy", () => {
   assert.deepEqual(targets("Create Session"), ["Start OK?"]);
-  assert.deepEqual(targets("Start OK?", 0), ["Create Attendance Workbook"]);
+  assert.deepEqual(targets("Start OK?", 0), ["Copy Attendance Template"]);
   assert.deepEqual(targets("Start OK?", 1), ["Respond Start"]);
 
   const { output } = runCodeNode("Create Session", { input: { body: startBody({ key: "wrong" }) } });
@@ -171,135 +181,131 @@ test("a rejected start never reaches the spreadsheet node", () => {
   assert.equal("workbookTitle" in output, false, "no workbook is planned for a rejected start");
 });
 
-// ============================================================
-// Workbook creation + Attendance headers
-// ============================================================
+test("the workbook is a Drive copy of the template, renamed for the session", () => {
+  const copy = node("Copy Attendance Template").parameters;
 
-test("the spreadsheet is created with a single Attendance tab", () => {
-  const create = node("Create Attendance Workbook");
-
-  assert.equal(create.parameters.resource, "spreadsheet");
-  assert.equal(create.parameters.operation, "create");
-  assert.match(create.parameters.title, /workbookTitle/);
-  assert.equal(create.parameters.sheetsUi.sheetValues.length, 1);
-  assert.match(create.parameters.sheetsUi.sheetValues[0].title, /workbookTab/);
-  assert.equal(create.onError, "continueRegularOutput");
+  assert.equal(copy.method, "POST");
+  assert.match(copy.url, new RegExp(`/drive/v3/files/\\{\\{.*templateId.*\\}\\}/copy`));
+  assert.match(copy.jsonBody, /workbookTitle/);
+  assert.equal(copy.authentication, "predefinedCredentialType");
+  assert.equal(copy.nodeCredentialType, "googleSheetsOAuth2Api");
+  assert.equal(node("Copy Attendance Template").onError, "continueRegularOutput");
 });
 
-test("Prepare Sheet Setup hands the Google Sheets node the Attendance columns", () => {
-  const { prepared, headerRow } = startSession();
+// ============================================================
+// The copy decides the layout
+// ============================================================
+
+test("Prepare Sheet Setup takes the tab and sheetId from the copy", () => {
+  const { prepared } = startSession({ metaResult: workbookMeta("Attendance", 0) });
 
   assert.equal(prepared.output.ok, true);
+  assert.equal(prepared.output.workbookId, COPIED_ID);
   assert.equal(prepared.output.tab, "Attendance");
-  assert.equal(prepared.output.range, "Attendance!A1:Q1");
-  // The Google Sheets node maps input keys to columns, so an item keyed by the
-  // 17 Attendance columns makes it write exactly that header row.
-  assert.deepEqual(Object.keys(prepared.output.headerRowItem), SHEET_COLUMNS);
-  assert.deepEqual(headerRow, prepared.output.headerRowItem);
-  assert.deepEqual(
-    Object.values(prepared.output.headerRowItem),
-    SHEET_COLUMNS.map(() => ""),
-    "empty values leave no data row behind",
+  assert.equal(prepared.output.sheetId, 0);
+  assert.equal(prepared.output.templateId, TEMPLATE_ID);
+});
+
+test("a tab the template named differently is followed, not assumed", () => {
+  const { prepared } = startSession({ metaResult: workbookMeta("Sheet1", 4) });
+
+  assert.equal(prepared.output.tab, "Sheet1");
+  assert.equal(prepared.output.sheetId, 4);
+  assert.equal(
+    prepared.output.headerUrl,
+    `https://sheets.googleapis.com/v4/spreadsheets/${COPIED_ID}/values/Sheet1!1:1`,
   );
 });
 
-test("the header write targets the tab Google actually created", () => {
-  const { prepared } = startSession({
-    createResult: createdSpreadsheet(undefined, "x").sheets
-      ? { ...createdSpreadsheet(), sheets: [{ properties: { sheetId: 0, title: "Sheet1" } }] }
-      : {},
-  });
-
-  assert.equal(prepared.output.tab, "Sheet1");
-  assert.equal(prepared.output.range, "Sheet1!A1:Q1");
-});
-
-test("a tab name with spaces is quoted in the A1 range", () => {
-  const { prepared } = startSession({
-    createResult: {
-      ...createdSpreadsheet(),
-      sheets: [{ properties: { sheetId: 7, title: "Week 3 Attendance" } }],
-    },
-  });
+test("a tab name with spaces is quoted and URL-encoded in the header read", () => {
+  const { prepared } = startSession({ metaResult: workbookMeta("Week 3 Attendance", 7) });
 
   assert.equal(prepared.output.tab, "Week 3 Attendance");
-  assert.equal(prepared.output.range, "'Week 3 Attendance'!A1:Q1");
-  assert.equal(prepared.output.sheetId, 7);
+  assert.equal(
+    prepared.output.headerUrl,
+    `https://sheets.googleapis.com/v4/spreadsheets/${COPIED_ID}/values/${encodeURIComponent(
+      "'Week 3 Attendance'",
+    )}!1:1`,
+  );
 });
 
-test("Prepare Sheet Setup keeps Student IDs as text and freezes the header row", () => {
+test("the only formatting the workflow adds is plain-text Student IDs", () => {
   const { prepared } = startSession();
   const { requests } = prepared.output.formatBody;
   const studentIdColumn = SHEET_COLUMNS.indexOf("Student ID");
 
-  const textColumn = requests.find((request) => request.repeatCell?.cell?.userEnteredFormat?.numberFormat);
-  assert.equal(textColumn.repeatCell.range.startColumnIndex, studentIdColumn);
-  assert.equal(textColumn.repeatCell.range.endColumnIndex, studentIdColumn + 1);
-  assert.equal(textColumn.repeatCell.range.startRowIndex, 1, "data rows, not the header");
-  assert.equal(textColumn.repeatCell.cell.userEnteredFormat.numberFormat.type, "TEXT");
-
-  const boldHeader = requests.find((request) => request.repeatCell?.cell?.userEnteredFormat?.textFormat);
-  assert.equal(boldHeader.repeatCell.range.startRowIndex, 0);
-  assert.equal(boldHeader.repeatCell.range.endRowIndex, 1);
-  assert.equal(boldHeader.repeatCell.cell.userEnteredFormat.textFormat.bold, true);
-
-  const freeze = requests.find((request) => request.updateSheetProperties);
-  assert.equal(freeze.updateSheetProperties.properties.gridProperties.frozenRowCount, 1);
+  // Bold/frozen headers belong to the template, so the workflow must not touch them.
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].repeatCell.cell.userEnteredFormat.numberFormat.type, "TEXT");
+  assert.equal(requests[0].repeatCell.range.startColumnIndex, studentIdColumn);
+  assert.equal(requests[0].repeatCell.range.endColumnIndex, studentIdColumn + 1);
+  assert.equal(requests[0].repeatCell.range.startRowIndex, 1, "data rows, not the header");
 });
 
-test("Prepare Sheet Setup reports the sheet, its Excel export and the Drive export", () => {
-  const { prepared, createJson } = startSession();
-  const id = createJson.spreadsheetId;
+test("Prepare Sheet Setup reports the copy, its Excel export and the Drive export", () => {
+  const { prepared } = startSession();
 
-  assert.equal(prepared.output.url, `https://docs.google.com/spreadsheets/d/${id}/edit`);
-  assert.equal(prepared.output.xlsxUrl, `https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx`);
+  assert.equal(prepared.output.url, `https://docs.google.com/spreadsheets/d/${COPIED_ID}/edit`);
+  assert.equal(prepared.output.xlsxUrl, `https://docs.google.com/spreadsheets/d/${COPIED_ID}/export?format=xlsx`);
   assert.equal(
     prepared.output.exportUrl,
-    `https://www.googleapis.com/drive/v3/files/${id}/export?mimeType=${encodeURIComponent(
+    `https://www.googleapis.com/drive/v3/files/${COPIED_ID}/export?mimeType=${encodeURIComponent(
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )}`,
   );
   assert.equal(
     prepared.output.batchUpdateUrl,
-    `https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${COPIED_ID}:batchUpdate`,
   );
-  assert.equal("valuesUrl" in prepared.output, false, "no raw values.update call any more");
 });
 
-test("Prepare Sheet Setup fails loudly when the spreadsheet was not created", () => {
+test("a failed copy is reported, with the Drive scope named when it is a 403", () => {
   const { prepared } = startSession({
-    createResult: { error: { message: "403: The caller does not have permission" } },
+    copyResult: { error: { message: "403: The caller does not have permission" } },
   });
 
   assert.equal(prepared.output.ok, false);
   assert.equal(prepared.output.error, "WORKBOOK_CREATE_FAILED");
   assert.match(prepared.output.detail, /does not have permission/);
+  assert.match(prepared.output.detail, /www\.googleapis\.com\/auth\/drive/);
+});
+
+test("a copy that cannot be read back is refused as WORKBOOK_TAB_UNKNOWN", () => {
+  const { prepared } = startSession({
+    metaResult: { error: { message: "404: Requested entity was not found" } },
+  });
+
+  assert.equal(prepared.output.ok, false);
+  assert.equal(prepared.output.error, "WORKBOOK_TAB_UNKNOWN");
 });
 
 // ============================================================
-// Activation: a session is only live with a usable workbook
+// Activation: a session is only live with a usable copy
 // ============================================================
 
-test("Activate Session stores the workbook on the live session and reports it", () => {
-  const { started, activated, staticData, createJson } = startSession();
+test("Activate Session stores the copied workbook on the live session", () => {
+  const { started, activated, staticData } = startSession();
 
   assert.equal(activated.output.ok, true);
-  assert.equal(staticData.session.workbook.id, createJson.spreadsheetId);
+  assert.equal(staticData.session.workbook.id, COPIED_ID);
   assert.equal(staticData.session.workbook.tab, "Attendance");
+  assert.equal(staticData.session.workbook.templateId, TEMPLATE_ID);
+  assert.equal(staticData.session.workbook.headersVerified, true);
   assert.equal(staticData.session.workbook.formatted, true);
   assert.deepEqual(activated.output.attendanceSheet, {
     sessionId: started.output.sessionId,
     tab: "Attendance",
     title: started.output.workbookTitle,
-    url: `https://docs.google.com/spreadsheets/d/${createJson.spreadsheetId}/edit`,
-    xlsxUrl: `https://docs.google.com/spreadsheets/d/${createJson.spreadsheetId}/export?format=xlsx`,
+    url: `https://docs.google.com/spreadsheets/d/${COPIED_ID}/edit`,
+    xlsxUrl: `https://docs.google.com/spreadsheets/d/${COPIED_ID}/export?format=xlsx`,
   });
   // The internal plan does not leak into the professor-facing response.
   assert.equal("workbookTitle" in activated.output, false);
+  assert.equal("templateId" in activated.output, false);
   assert.equal("attendanceHeaders" in activated.output, false);
 });
 
-test("the workbook is kept in a history so it can be downloaded after the stop", () => {
+test("the copy is kept in a history so it can be downloaded after the stop", () => {
   const { activated, staticData, started } = startSession();
 
   assert.equal(activated.output.ok, true);
@@ -308,9 +314,9 @@ test("the workbook is kept in a history so it can be downloaded after the stop",
   assert.equal(staticData.workbooks[0].id, staticData.session.workbook.id);
 });
 
-test("Activate Session refuses to start when the spreadsheet could not be created", () => {
+test("Activate Session refuses to start when the template could not be copied", () => {
   const { activated, staticData } = startSession({
-    createResult: { error: { message: "quota exceeded" } },
+    copyResult: { error: { message: "quota exceeded" } },
   });
 
   assert.equal(activated.output.ok, false);
@@ -318,22 +324,34 @@ test("Activate Session refuses to start when the spreadsheet could not be create
   assert.equal("session" in staticData, false, "the half-started session is rolled back");
 });
 
-test("Activate Session refuses to start when the header row could not be written", () => {
+test("a template that lost a column is refused, naming the column", () => {
   const { activated, staticData } = startSession({
-    headerWrite: { error: { message: "Requested writing range is invalid" } },
+    headerReadResult: headerRead(SHEET_COLUMNS.filter((column) => column !== "Device ID")),
   });
 
   assert.equal(activated.output.ok, false);
-  assert.equal(activated.output.error, "WORKBOOK_SETUP_FAILED");
+  assert.equal(activated.output.error, "WORKBOOK_TEMPLATE_MISMATCH");
+  assert.match(activated.output.detail, /missing: Device ID/);
+  assert.equal(activated.output.tab, "Attendance");
   assert.match(activated.output.sheetUrl, /docs\.google\.com\/spreadsheets\/d\//);
   assert.equal("session" in staticData, false);
 });
 
-test("a missing updatedRange also counts as a failed header write", () => {
-  const { activated } = startSession({ headerWrite: { spreadsheetId: "x" } });
+test("extra template columns are fine - only the appended ones are required", () => {
+  const { activated } = startSession({
+    headerReadResult: headerRead(["No.", ...SHEET_COLUMNS, "Notes"]),
+  });
 
-  assert.equal(activated.output.ok, false);
-  assert.equal(activated.output.error, "WORKBOOK_SETUP_FAILED");
+  assert.equal(activated.output.ok, true);
+});
+
+test("a failed header read does not block the session", () => {
+  const { activated, staticData } = startSession({
+    headerReadResult: { error: { message: "socket hang up" } },
+  });
+
+  assert.equal(activated.output.ok, true);
+  assert.equal(staticData.session.workbook.headersVerified, false);
 });
 
 test("formatting problems do not block the session", () => {
@@ -344,61 +362,24 @@ test("formatting problems do not block the session", () => {
 });
 
 test("the start branch is wired end to end into one response", () => {
-  assert.deepEqual(targets("Create Attendance Workbook"), ["Prepare Sheet Setup"]);
-  assert.deepEqual(targets("Prepare Sheet Setup"), ["Header Row"]);
-  assert.deepEqual(targets("Header Row"), ["Write Attendance Headers"]);
-  assert.deepEqual(targets("Write Attendance Headers"), ["Format Attendance Sheet"]);
+  assert.deepEqual(targets("Copy Attendance Template"), ["Read Workbook Meta"]);
+  assert.deepEqual(targets("Read Workbook Meta"), ["Prepare Sheet Setup"]);
+  assert.deepEqual(targets("Prepare Sheet Setup"), ["Verify Attendance Headers"]);
+  assert.deepEqual(targets("Verify Attendance Headers"), ["Format Attendance Sheet"]);
   assert.deepEqual(targets("Format Attendance Sheet"), ["Activate Session"]);
   assert.deepEqual(targets("Activate Session"), ["Respond Start"]);
 
-  // The header row is written by the same Google Sheets node the attendance
-  // rows use, so it rides the credential and transport that already work.
-  const write = node("Write Attendance Headers");
-  assert.equal(write.type, "n8n-nodes-base.googleSheets");
-  assert.equal(write.parameters.resource, "sheet");
-  assert.equal(write.parameters.operation, "append");
-  assert.equal(write.parameters.columns.mappingMode, "autoMapInputData");
-  assert.match(write.parameters.documentId.value, /Prepare Sheet Setup.*workbookId/);
-  assert.match(write.parameters.sheetName.value, /Prepare Sheet Setup.*\.tab/);
-  assert.equal(write.onError, "continueRegularOutput");
-
-  const format = node("Format Attendance Sheet").parameters;
-  assert.equal(format.method, "POST");
-  assert.match(format.url, /batchUpdateUrl/);
-  assert.match(format.jsonBody, /formatBody/);
-});
-
-test("attendance follows the tab name the workbook really has", () => {
-  const { staticData } = startSession({
-    createResult: { ...createdSpreadsheet(), sheets: [{ properties: { sheetId: 0, title: "Sheet1" } }] },
-  });
-  const result = submit(staticData.session);
-
-  assert.equal(result.workbookTab, "Sheet1");
-  for (const name of ["Check Duplicate", "Save Attendance", "Save Rejected Location"]) {
-    assert.match(node(name).parameters.sheetName.value, /workbookTab/);
+  for (const name of ["Copy Attendance Template", "Read Workbook Meta", "Verify Attendance Headers"]) {
+    assert.equal(node(name).parameters.nodeCredentialType, "googleSheetsOAuth2Api", name);
+    assert.deepEqual(node(name).credentials, node("Save Attendance").credentials, name);
   }
 });
 
-test("a failed header write reports the step, the tab and the sheet to open", () => {
-  const { activated } = startSession({
-    headerWrite: { error: { message: "400: Unable to parse range" } },
-  });
-
-  assert.equal(activated.output.ok, false);
-  assert.equal(activated.output.error, "WORKBOOK_SETUP_FAILED");
-  assert.equal(activated.output.failedStep, "WRITE_HEADERS");
-  assert.equal(activated.output.tab, "Attendance");
-  assert.equal(activated.output.range, "Attendance!A1:Q1");
-  assert.match(activated.output.detail, /Unable to parse range/);
-  assert.match(activated.output.sheetUrl, /docs\.google\.com\/spreadsheets\/d\//);
-});
-
 // ============================================================
-// Students write into the session's own workbook
+// Students write into the session's own copy
 // ============================================================
 
-test("attendance is appended to the session workbook, not the shared sheet", () => {
+test("attendance is appended to the session copy, not the shared sheet", () => {
   const { activated, staticData } = startSession();
   const result = submit(staticData.session);
 
@@ -406,7 +387,6 @@ test("attendance is appended to the session workbook, not the shared sheet", () 
   assert.equal(result.workbookId, staticData.session.workbook.id);
   assert.notEqual(result.workbookId, LEGACY_SHEET_ID);
   assert.equal(result.workbookIsFallback, false);
-  assert.equal(result.workbookTab, "Attendance");
   assert.equal(activated.output.ok, true);
 
   for (const name of ["Check Duplicate", "Save Attendance", "Save Rejected Location"]) {
@@ -415,7 +395,13 @@ test("attendance is appended to the session workbook, not the shared sheet", () 
     assert.match(doc.value, /\$\('Validate Submission'\)\.first\(\)\.json\.workbookId/);
     assert.match(node(name).parameters.sheetName.value, /workbookTab/);
   }
-  assert.equal(result.workbookTab, "Attendance");
+});
+
+test("attendance follows the tab name the copy really has", () => {
+  const { staticData } = startSession({ metaResult: workbookMeta("Sheet1") });
+  const result = submit(staticData.session);
+
+  assert.equal(result.workbookTab, "Sheet1");
 });
 
 test("a session without a workbook falls back to the shared prototype sheet", () => {
@@ -577,7 +563,6 @@ test("the export endpoint is wired to a binary response with an error branch", (
   assert.deepEqual(targets("Export XLSX", 1), ["Respond Export Error"]);
 
   const request = node("Export XLSX").parameters;
-  assert.equal(request.authentication, "predefinedCredentialType");
   assert.equal(request.nodeCredentialType, "googleSheetsOAuth2Api");
   assert.equal(request.options.response.response.responseFormat, "file");
   assert.equal(request.options.response.response.outputPropertyName, "data");
