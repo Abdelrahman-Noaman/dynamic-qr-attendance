@@ -97,10 +97,14 @@ workbook. A session with no workbook of its own — only possible for one alread
 running when the workbook step was introduced — falls back to the shared
 prototype spreadsheet.
 
-Two plain HTTP Request nodes write the headers and the formatting, and a third
-serves `/dqr-export` by calling the Drive export endpoint. All three reuse the
-Google Sheets OAuth2 credential (`drive.file` + `spreadsheets` scopes), so no
-additional credential is configured.
+The header row is written by the Google Sheets node itself (an auto-map append
+into the empty tab, which makes n8n write the input keys as row 1), so it uses
+the same credential and transport as the attendance rows. A plain HTTP Request
+node then applies the cosmetic formatting, and a second serves `/dqr-export` by
+calling the Drive export endpoint. Both reuse the Google Sheets OAuth2
+credential (`drive.file` + `spreadsheets` scopes), so no additional credential
+is configured — and if either fails, the session still works: formatting is
+skipped and the dashboard falls back to Google's own export link.
 
 ### Gmail
 

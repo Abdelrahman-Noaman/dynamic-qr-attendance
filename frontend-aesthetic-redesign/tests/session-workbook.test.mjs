@@ -57,13 +57,8 @@ const createdSpreadsheet = (spreadsheetId = "1AbCdEfGhIjKlMnOpQrStUvWxYz01234567
   sheets: [{ properties: { sheetId: 0, title: "Attendance", index: 0 } }],
 });
 
-const headerWriteResponse = (spreadsheetId = "1AbCdEfGhIjKlMnOpQrStUvWxYz01234567890ab") => ({
-  spreadsheetId,
-  updatedRange: "Attendance!A1:Q1",
-  updatedRows: 1,
-  updatedColumns: SHEET_COLUMNS.length,
-  updatedCells: SHEET_COLUMNS.length,
-});
+/** A successful Google Sheets append echoes the item it was given. */
+const headerWriteResponse = (prepared) => prepared.output.headerRowItem;
 
 /** Start -> create workbook -> prepare -> write headers -> format -> activate. */
 function startSession({ lecture = "Data Security", createResult, headerWrite, formatWrite, body } = {}) {
@@ -81,6 +76,11 @@ function startSession({ lecture = "Data Security", createResult, headerWrite, fo
     outputs: { "Create Session": started.output },
   });
 
+  const headerRow = runCodeNode("Header Row", {
+    staticData,
+    outputs: { "Prepare Sheet Setup": prepared.output },
+  }).output;
+
   const formats = formatWrite ?? { spreadsheetId: createJson.spreadsheetId, replies: [{}, {}, {}] };
   const activated = runCodeNode("Activate Session", {
     input: formats,
@@ -88,12 +88,12 @@ function startSession({ lecture = "Data Security", createResult, headerWrite, fo
     outputs: {
       "Create Session": started.output,
       "Prepare Sheet Setup": prepared.output,
-      "Write Attendance Headers": headerWrite ?? headerWriteResponse(createJson.spreadsheetId),
+      "Write Attendance Headers": headerWrite ?? headerWriteResponse({ output: { headerRowItem: headerRow } }),
       "Format Attendance Sheet": formats,
     },
   });
 
-  return { started, prepared, activated, staticData, createJson };
+  return { started, prepared, activated, staticData, createJson, headerRow };
 }
 
 function submitInput(session, overrides = {}) {
@@ -186,17 +186,45 @@ test("the spreadsheet is created with a single Attendance tab", () => {
   assert.equal(create.onError, "continueRegularOutput");
 });
 
-test("Prepare Sheet Setup writes the 17 Attendance headers into row 1", () => {
-  const { prepared } = startSession();
+test("Prepare Sheet Setup hands the Google Sheets node the Attendance columns", () => {
+  const { prepared, headerRow } = startSession();
 
   assert.equal(prepared.output.ok, true);
   assert.equal(prepared.output.tab, "Attendance");
   assert.equal(prepared.output.range, "Attendance!A1:Q1");
-  assert.deepEqual(prepared.output.headerBody.values, [SHEET_COLUMNS]);
-  assert.equal(
-    prepared.output.valuesUrl,
-    `https://sheets.googleapis.com/v4/spreadsheets/${prepared.output.workbookId}/values/Attendance!A1:Q1`,
+  // The Google Sheets node maps input keys to columns, so an item keyed by the
+  // 17 Attendance columns makes it write exactly that header row.
+  assert.deepEqual(Object.keys(prepared.output.headerRowItem), SHEET_COLUMNS);
+  assert.deepEqual(headerRow, prepared.output.headerRowItem);
+  assert.deepEqual(
+    Object.values(prepared.output.headerRowItem),
+    SHEET_COLUMNS.map(() => ""),
+    "empty values leave no data row behind",
   );
+});
+
+test("the header write targets the tab Google actually created", () => {
+  const { prepared } = startSession({
+    createResult: createdSpreadsheet(undefined, "x").sheets
+      ? { ...createdSpreadsheet(), sheets: [{ properties: { sheetId: 0, title: "Sheet1" } }] }
+      : {},
+  });
+
+  assert.equal(prepared.output.tab, "Sheet1");
+  assert.equal(prepared.output.range, "Sheet1!A1:Q1");
+});
+
+test("a tab name with spaces is quoted in the A1 range", () => {
+  const { prepared } = startSession({
+    createResult: {
+      ...createdSpreadsheet(),
+      sheets: [{ properties: { sheetId: 7, title: "Week 3 Attendance" } }],
+    },
+  });
+
+  assert.equal(prepared.output.tab, "Week 3 Attendance");
+  assert.equal(prepared.output.range, "'Week 3 Attendance'!A1:Q1");
+  assert.equal(prepared.output.sheetId, 7);
 });
 
 test("Prepare Sheet Setup keeps Student IDs as text and freezes the header row", () => {
@@ -235,6 +263,7 @@ test("Prepare Sheet Setup reports the sheet, its Excel export and the Drive expo
     prepared.output.batchUpdateUrl,
     `https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`,
   );
+  assert.equal("valuesUrl" in prepared.output, false, "no raw values.update call any more");
 });
 
 test("Prepare Sheet Setup fails loudly when the spreadsheet was not created", () => {
@@ -316,23 +345,53 @@ test("formatting problems do not block the session", () => {
 
 test("the start branch is wired end to end into one response", () => {
   assert.deepEqual(targets("Create Attendance Workbook"), ["Prepare Sheet Setup"]);
-  assert.deepEqual(targets("Prepare Sheet Setup"), ["Write Attendance Headers"]);
+  assert.deepEqual(targets("Prepare Sheet Setup"), ["Header Row"]);
+  assert.deepEqual(targets("Header Row"), ["Write Attendance Headers"]);
   assert.deepEqual(targets("Write Attendance Headers"), ["Format Attendance Sheet"]);
   assert.deepEqual(targets("Format Attendance Sheet"), ["Activate Session"]);
   assert.deepEqual(targets("Activate Session"), ["Respond Start"]);
 
-  const write = node("Write Attendance Headers").parameters;
-  assert.equal(write.method, "PUT");
-  assert.equal(write.authentication, "predefinedCredentialType");
-  assert.equal(write.nodeCredentialType, "googleSheetsOAuth2Api");
-  assert.match(write.url, /valuesUrl/);
-  assert.match(write.jsonBody, /headerBody/);
-  assert.deepEqual(write.queryParameters.parameters, [{ name: "valueInputOption", value: "RAW" }]);
+  // The header row is written by the same Google Sheets node the attendance
+  // rows use, so it rides the credential and transport that already work.
+  const write = node("Write Attendance Headers");
+  assert.equal(write.type, "n8n-nodes-base.googleSheets");
+  assert.equal(write.parameters.resource, "sheet");
+  assert.equal(write.parameters.operation, "append");
+  assert.equal(write.parameters.columns.mappingMode, "autoMapInputData");
+  assert.match(write.parameters.documentId.value, /Prepare Sheet Setup.*workbookId/);
+  assert.match(write.parameters.sheetName.value, /Prepare Sheet Setup.*\.tab/);
+  assert.equal(write.onError, "continueRegularOutput");
 
   const format = node("Format Attendance Sheet").parameters;
   assert.equal(format.method, "POST");
   assert.match(format.url, /batchUpdateUrl/);
   assert.match(format.jsonBody, /formatBody/);
+});
+
+test("attendance follows the tab name the workbook really has", () => {
+  const { staticData } = startSession({
+    createResult: { ...createdSpreadsheet(), sheets: [{ properties: { sheetId: 0, title: "Sheet1" } }] },
+  });
+  const result = submit(staticData.session);
+
+  assert.equal(result.workbookTab, "Sheet1");
+  for (const name of ["Check Duplicate", "Save Attendance", "Save Rejected Location"]) {
+    assert.match(node(name).parameters.sheetName.value, /workbookTab/);
+  }
+});
+
+test("a failed header write reports the step, the tab and the sheet to open", () => {
+  const { activated } = startSession({
+    headerWrite: { error: { message: "400: Unable to parse range" } },
+  });
+
+  assert.equal(activated.output.ok, false);
+  assert.equal(activated.output.error, "WORKBOOK_SETUP_FAILED");
+  assert.equal(activated.output.failedStep, "WRITE_HEADERS");
+  assert.equal(activated.output.tab, "Attendance");
+  assert.equal(activated.output.range, "Attendance!A1:Q1");
+  assert.match(activated.output.detail, /Unable to parse range/);
+  assert.match(activated.output.sheetUrl, /docs\.google\.com\/spreadsheets\/d\//);
 });
 
 // ============================================================
@@ -354,8 +413,9 @@ test("attendance is appended to the session workbook, not the shared sheet", () 
     const doc = node(name).parameters.documentId;
     assert.equal(doc.mode, "id");
     assert.match(doc.value, /\$\('Validate Submission'\)\.first\(\)\.json\.workbookId/);
-    assert.equal(node(name).parameters.sheetName.value, "Attendance");
+    assert.match(node(name).parameters.sheetName.value, /workbookTab/);
   }
+  assert.equal(result.workbookTab, "Attendance");
 });
 
 test("a session without a workbook falls back to the shared prototype sheet", () => {
