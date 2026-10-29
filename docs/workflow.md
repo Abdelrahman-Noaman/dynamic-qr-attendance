@@ -6,70 +6,49 @@ This document describes the behavior present in the exported n8n workflow. It do
 
 `POST /dqr-start` checks the submitted professor key. For an authorized request, it creates a session ID, stores the lecture name, creates the first random token, and marks the session active in workflow static data.
 
-An authorized start also creates **a new spreadsheet for that session**:
+An authorized start also gives the session **its own spreadsheet, copied from
+the Attendance template**:
 
 ```text
 Create Session      validates the key and the lecture location, then plans the
-                    workbook: title "Attendance - <Lecture> - <Session ID>",
-                    tab "Attendance", and the 17 Attendance headers
-Start OK?           a rejected start is answered immediately - no spreadsheet
-Create Attendance Workbook
-                    Google Sheets "Create spreadsheet" with a single
-                    Attendance tab (Google omits the default Sheet1 when the
-                    create call lists sheets)
-Prepare Sheet Setup reads the create response and keeps the tab name Google
-                    actually used (never an assumed "Attendance"), builds the
-                    header-row item, and the batchUpdate body for bold +
-                    frozen headers and a plain-text Student ID column
-Header Row          one item keyed by the 17 Attendance columns
-Write Attendance Headers
-                    Google Sheets "Sheet Within Document → Append" in
-                    auto-map mode: on an empty tab n8n writes the input keys
-                    as the header row, and the empty values leave no data row
+                    copy: the template's spreadsheet ID plus the title
+                    "Attendance - <Lecture> - <Session ID>"
+Start OK?           a rejected start is answered immediately - no copy
+Copy Attendance Template
+                    POST /drive/v3/files/{templateId}/copy with that title, so
+                    the session workbook is an exact clone of the template -
+                    its tab, header row, colours and fonts
+Read Workbook Meta  GET /v4/spreadsheets/{id} to read the copy's real tab name
+                    and sheetId (never an assumed "Attendance")
+Prepare Sheet Setup builds the quoted, URL-encoded A1 tab, the header-read URL
+                    and a batchUpdate body that only forces Student ID to plain
+                    text - the rest of the look stays the template's
+Verify Attendance Headers
+                    GET /v4/spreadsheets/{id}/values/{tab}!1:1 to confirm the
+                    template still carries the 17 columns attendance appends
 Format Attendance Sheet
                     POST /v4/spreadsheets/{id}:batchUpdate (cosmetic only)
 Activate Session    stores the workbook on the live session, appends it to the
                     workbook history used by /dqr-export, and answers
 ```
 
-The header row is written by the **same Google Sheets node** that writes
-attendance rows, so it uses the credential and transport that are already
-proven; only the cosmetic formatting and `/dqr-export` use plain HTTP Request
-nodes with that same OAuth2 credential (`drive.file` + `spreadsheets` scopes),
-so no extra credential is required.
+All four HTTP calls reuse the **same Google Sheets OAuth2 credential**. The copy
+needs the **Drive scope** (`https://www.googleapis.com/auth/drive`) on top of it:
+the default `drive.file` scope only covers files the app created itself, so
+without it the copy returns a 403.
 
-`Activate Session` verifies the write by checking that the sheet node echoed
-back an item carrying every Attendance column, and refuses the start when it
-did not. Its `detail` carries the underlying Sheets error, the tab name and the
-A1 range so a refused start says what actually happened.
+`Activate Session` refuses the start when the template could not be copied
+(`WORKBOOK_CREATE_FAILED`, naming the Drive scope on a 403), when the copy cannot
+be read back (`WORKBOOK_TAB_UNKNOWN`), or when a successful header read shows the
+template is missing a column (`WORKBOOK_TEMPLATE_MISMATCH` plus the column
+names). It deletes the half-started session first, because an `append` into a tab
+without those headers would invent its own columns. Those nodes are set to
+*continue (regular output)*, so such failures are reported as a refused start
+instead of a 500.
 
-The session is only live once the workbook exists **and** its header row was
-written. Otherwise `Activate Session` deletes the half-started session and
-answers `WORKBOOK_CREATE_FAILED` or `WORKBOOK_SETUP_FAILED`, because an
-`append` into a sheet without headers would invent its own columns. Those nodes
-are set to *continue (regular output)* so such failures are reported as a
-refused start instead of a 500.
-
-The request must also carry the professor-confirmed lecture-hall reference:
-
-```text
-instructorLatitude             WGS-84 latitude of the map pin
-instructorLongitude            WGS-84 longitude of the map pin
-instructorLocationSource       "map" (default)
-instructorLocationConfirmedAt  epoch ms of the "Confirm Lecture Location" press
-```
-
-For a `map` reference n8n validates the coordinate ranges and the confirmation
-timestamp only — **no GPS accuracy is required or accepted for the reference** —
-and rejects with `LECTURE_LOCATION_MISSING`, `LECTURE_LOCATION_INVALID`, or
-`LECTURE_LOCATION_STALE` (confirmation older than 60 minutes). The stored
-session then holds `location: { latitude, longitude, accuracy: null, source: "map",
-confirmedAt }` and `locationQualityStatus: "CONFIRMED"`.
-
-The legacy `instructorLocationSource: "gps"` path is still accepted for tools
-that send a device reading; it keeps the original checks (coordinate range,
-positive accuracy ≤ 50 m, capture age ≤ 30 s, `STALE_LOCATION` /
-`LOW_ACCURACY`). The dashboard never uses it.
+A header read that itself fails does **not** block the session — a Sheets hiccup
+must not stop a lecture from starting. The workbook is then stored with
+`headersVerified: false`, and its `templateId` is kept for support.
 
 ## 2. Generate Token
 
