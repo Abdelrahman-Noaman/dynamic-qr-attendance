@@ -57,7 +57,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        2064,
+        2320,
         0
       ]
     },
@@ -383,7 +383,7 @@
         },
         "sheetName": {
           "__rl": true,
-          "value": "Attendance",
+          "value": "={{ $('Validate Submission').first().json.workbookTab }}",
           "mode": "name"
         },
         "filtersUI": {
@@ -482,7 +482,7 @@
         },
         "sheetName": {
           "__rl": true,
-          "value": "Attendance",
+          "value": "={{ $('Validate Submission').first().json.workbookTab }}",
           "mode": "name"
         },
         "columns": {
@@ -839,7 +839,7 @@
         },
         "sheetName": {
           "__rl": true,
-          "value": "Attendance",
+          "value": "={{ $('Validate Submission').first().json.workbookTab }}",
           "mode": "name"
         },
         "columns": {
@@ -1137,7 +1137,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Turns the fresh spreadsheet into this session's Attendance workbook:\n// the header row, the plain-text Student ID column and the frozen header row.\n// Nothing is written here - the two HTTP nodes that follow send these bodies.\nconst XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';\nconst create = $input.first().json;\nconst start = $('Create Session').first().json;\n\nconst spreadsheetId = create.spreadsheetId;\nif (!spreadsheetId) {\n  const err = create.error || {};\n  return [{ json: {\n    ok: false,\n    error: 'WORKBOOK_CREATE_FAILED',\n    detail: String(err.message || err.description || 'The attendance spreadsheet could not be created.')\n  } }];\n}\n\nconst headers = Array.isArray(start.attendanceHeaders) ? start.attendanceHeaders.filter(h => String(h).trim() !== '') : [];\nif (!headers.length) {\n  return [{ json: { ok: false, error: 'WORKBOOK_INVALID_HEADERS', detail: 'The session did not provide the Attendance column list.' } }];\n}\n\nconst tab = String(start.workbookTab || 'Attendance');\nconst sheets = Array.isArray(create.sheets) ? create.sheets : [];\nconst firstSheet = sheets[0] && sheets[0].properties ? sheets[0].properties : {};\nconst sheetId = Number.isFinite(firstSheet.sheetId) ? firstSheet.sheetId : 0;\n\n// 0 -> A, 25 -> Z, 26 -> AA ...\nconst columnLetter = index => {\n  let n = index;\n  let letters = '';\n  do {\n    letters = String.fromCharCode(65 + (n % 26)) + letters;\n    n = Math.floor(n / 26) - 1;\n  } while (n >= 0);\n  return letters;\n};\n\nconst range = tab + '!A1:' + columnLetter(headers.length - 1) + '1';\nconst studentIdColumn = headers.indexOf('Student ID');\nconst requests = [\n  {\n    repeatCell: {\n      range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: headers.length },\n      cell: { userEnteredFormat: { textFormat: { bold: true } } },\n      fields: 'userEnteredFormat.textFormat.bold'\n    }\n  },\n  {\n    updateSheetProperties: {\n      properties: { sheetId, gridProperties: { frozenRowCount: 1 } },\n      fields: 'gridProperties.frozenRowCount'\n    }\n  }\n];\n// Student IDs are identifiers, not numbers: keep leading zeros.\nif (studentIdColumn >= 0) {\n  requests.splice(1, 0, {\n    repeatCell: {\n      range: { sheetId, startRowIndex: 1, endRowIndex: 1001, startColumnIndex: studentIdColumn, endColumnIndex: studentIdColumn + 1 },\n      cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },\n      fields: 'userEnteredFormat.numberFormat'\n    }\n  });\n}\n\nreturn [{ json: {\n  ok: true,\n  workbookId: spreadsheetId,\n  tab,\n  sheetId,\n  headers,\n  range,\n  title: (create.properties && create.properties.title) || start.workbookTitle,\n  url: create.spreadsheetUrl || ('https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/edit'),\n  xlsxUrl: 'https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/export?format=xlsx',\n  exportUrl: 'https://www.googleapis.com/drive/v3/files/' + spreadsheetId + '/export?mimeType=' + encodeURIComponent(XLSX_MIME),\n  valuesUrl: 'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + '/values/' + range,\n  batchUpdateUrl: 'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + ':batchUpdate',\n  headerBody: { values: [headers] },\n  formatBody: { requests }\n} }];"
+        "jsCode": "// Turns the fresh spreadsheet into this session's Attendance workbook.\n// The tab name comes from the create response - whatever Google actually\n// called it - so the header write can never target a tab that does not exist.\nconst XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';\nconst create = $input.first().json;\nconst start = $('Create Session').first().json;\n\nconst spreadsheetId = create.spreadsheetId;\nif (!spreadsheetId) {\n  const err = create.error || {};\n  return [{ json: {\n    ok: false,\n    error: 'WORKBOOK_CREATE_FAILED',\n    detail: String(err.message || err.description || 'The attendance spreadsheet could not be created.')\n  } }];\n}\n\nconst headers = Array.isArray(start.attendanceHeaders) ? start.attendanceHeaders.filter(h => String(h).trim() !== '') : [];\nif (!headers.length) {\n  return [{ json: { ok: false, error: 'WORKBOOK_INVALID_HEADERS', detail: 'The session did not provide the Attendance column list.' } }];\n}\n\n// Trust the spreadsheet that was really created, not the name we asked for.\nconst sheets = Array.isArray(create.sheets) ? create.sheets : [];\nconst firstSheet = sheets[0] && sheets[0].properties ? sheets[0].properties : {};\nconst tab = String(firstSheet.title || start.workbookTab || 'Attendance');\nconst sheetId = Number.isFinite(firstSheet.sheetId) ? firstSheet.sheetId : 0;\n\n// 0 -> A, 25 -> Z, 26 -> AA ...\nconst columnLetter = index => {\n  let n = index;\n  let letters = '';\n  do {\n    letters = String.fromCharCode(65 + (n % 26)) + letters;\n    n = Math.floor(n / 26) - 1;\n  } while (n >= 0);\n  return letters;\n};\n\n// A1 notation needs single quotes around a tab name with spaces or punctuation.\nconst quotedTab = /^[A-Za-z0-9_]+$/.test(tab) ? tab : \"'\" + tab.replace(/'/g, \"''\") + \"'\";\nconst range = quotedTab + '!A1:' + columnLetter(headers.length - 1) + '1';\n\n// Empty-valued row: on an empty tab the Google Sheets node writes these keys as\n// the header row and the empty values leave no visible data row behind.\nconst headerRowItem = {};\nheaders.forEach(header => { headerRowItem[header] = ''; });\n\nconst studentIdColumn = headers.indexOf('Student ID');\nconst requests = [\n  {\n    repeatCell: {\n      range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: headers.length },\n      cell: { userEnteredFormat: { textFormat: { bold: true } } },\n      fields: 'userEnteredFormat.textFormat.bold'\n    }\n  },\n  {\n    updateSheetProperties: {\n      properties: { sheetId, gridProperties: { frozenRowCount: 1 } },\n      fields: 'gridProperties.frozenRowCount'\n    }\n  }\n];\n// Student IDs are identifiers, not numbers: keep leading zeros.\nif (studentIdColumn >= 0) {\n  requests.splice(1, 0, {\n    repeatCell: {\n      range: { sheetId, startRowIndex: 1, endRowIndex: 1001, startColumnIndex: studentIdColumn, endColumnIndex: studentIdColumn + 1 },\n      cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },\n      fields: 'userEnteredFormat.numberFormat'\n    }\n  });\n}\n\nreturn [{ json: {\n  ok: true,\n  workbookId: spreadsheetId,\n  tab,\n  sheetId,\n  headers,\n  range,\n  headerRowItem,\n  title: (create.properties && create.properties.title) || start.workbookTitle,\n  url: create.spreadsheetUrl || ('https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/edit'),\n  xlsxUrl: 'https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/export?format=xlsx',\n  exportUrl: 'https://www.googleapis.com/drive/v3/files/' + spreadsheetId + '/export?mimeType=' + encodeURIComponent(XLSX_MIME),\n  batchUpdateUrl: 'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + ':batchUpdate',\n  formatBody: { requests }\n} }];"
       },
       "id": "prepare-sheet-setup",
       "name": "Prepare Sheet Setup",
@@ -1150,31 +1150,36 @@
     },
     {
       "parameters": {
-        "method": "PUT",
-        "url": "={{ $('Prepare Sheet Setup').first().json.valuesUrl }}",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "googleSheetsOAuth2Api",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "valueInputOption",
-              "value": "RAW"
-            }
-          ]
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Prepare Sheet Setup').first().json.workbookId }}",
+          "mode": "id"
         },
-        "sendBody": true,
-        "contentType": "json",
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($('Prepare Sheet Setup').first().json.headerBody) }}",
-        "options": {}
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('Prepare Sheet Setup').first().json.tab }}",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
       },
       "id": "write-attendance-headers",
       "name": "Write Attendance Headers",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
       "position": [
-        1296,
+        1552,
         -112
       ],
       "credentials": {
@@ -1202,7 +1207,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1552,
+        1808,
         -112
       ],
       "credentials": {
@@ -1215,14 +1220,14 @@
     },
     {
       "parameters": {
-        "jsCode": "// The session only goes live once its own workbook exists and has the\n// Attendance header row. Otherwise attendance would have nowhere to be\n// written, so the start is rolled back instead of half-starting.\nconst prep = $('Prepare Sheet Setup').first().json;\nconst headerWrite = $('Write Attendance Headers').first().json;\nconst formatWrite = $('Format Attendance Sheet').first().json;\nconst plan = $('Create Session').first().json;\nconst { workbookTitle, workbookTab, attendanceHeaders, ...start } = plan;\nconst wf = $getWorkflowStaticData('global');\nconst failDetail = value => (value && value.error && (value.error.message || value.error.description)) || '';\n\nconst abort = (error, detail, extra = {}) => {\n  delete wf.session;\n  return [{ json: Object.assign({ ok: false, error, detail: String(detail || '') }, extra) }];\n};\n\nif (!prep || !prep.ok || !prep.workbookId) {\n  return abort((prep && prep.error) || 'WORKBOOK_CREATE_FAILED', prep && prep.detail);\n}\nif (!headerWrite || headerWrite.error || !headerWrite.updatedRange) {\n  return abort('WORKBOOK_SETUP_FAILED', failDetail(headerWrite) || 'The Attendance header row could not be written.', { sheetUrl: prep.url });\n}\n\nconst workbook = {\n  id: prep.workbookId,\n  tab: prep.tab,\n  title: prep.title,\n  url: prep.url,\n  xlsxUrl: prep.xlsxUrl,\n  headers: prep.headers,\n  createdAt: Date.now(),\n  // Cosmetic-only: bold + frozen header and the plain-text Student ID column.\n  formatted: Boolean(formatWrite && !formatWrite.error && formatWrite.replies)\n};\n\nif (wf.session) wf.session.workbook = workbook;\nconst history = Array.isArray(wf.workbooks) ? wf.workbooks : [];\nhistory.push({\n  sessionId: wf.session ? wf.session.sessionId : start.sessionId,\n  lecture: wf.session ? wf.session.lecture : start.lecture,\n  id: workbook.id,\n  tab: workbook.tab,\n  title: workbook.title,\n  url: workbook.url,\n  xlsxUrl: workbook.xlsxUrl,\n  createdAt: workbook.createdAt\n});\nwf.workbooks = history.slice(-20);\n\nreturn [{ json: Object.assign({}, start, {\n  attendanceSheet: {\n    sessionId: wf.session ? wf.session.sessionId : start.sessionId,\n    tab: workbook.tab,\n    title: workbook.title,\n    url: workbook.url,\n    xlsxUrl: workbook.xlsxUrl\n  }\n}) }];"
+        "jsCode": "// The session only goes live once its own workbook exists and has the\n// Attendance header row. Otherwise attendance would have nowhere to be\n// written, so the start is rolled back instead of half-starting.\nconst prep = $('Prepare Sheet Setup').first().json;\nconst headerWrite = $('Write Attendance Headers').first().json;\nconst formatWrite = $('Format Attendance Sheet').first().json;\nconst plan = $('Create Session').first().json;\nconst { workbookTitle, workbookTab, attendanceHeaders, ...start } = plan;\nconst wf = $getWorkflowStaticData('global');\n\n// Pull whatever the failing node reported so the professor sees a real reason.\nconst failureOf = value => {\n  const err = (value && value.error) || {};\n  return String(err.message || err.description || err.httpCode || (typeof err === 'string' ? err : '') || '');\n};\n\nconst abort = (error, detail, extra = {}) => {\n  delete wf.session;\n  return [{ json: Object.assign({ ok: false, error, detail: String(detail || '') }, extra) }];\n};\n\nif (!prep || !prep.ok || !prep.workbookId) {\n  return abort((prep && prep.error) || 'WORKBOOK_CREATE_FAILED', prep && prep.detail);\n}\n\nconst headersWritten = Boolean(headerWrite) && !headerWrite.error\n  && prep.headers.every(header => Object.prototype.hasOwnProperty.call(headerWrite, header));\nif (!headersWritten) {\n  return abort(\n    'WORKBOOK_SETUP_FAILED',\n    failureOf(headerWrite) || 'The Attendance header row could not be written into \"' + prep.tab + '\".',\n    { failedStep: 'WRITE_HEADERS', tab: prep.tab, range: prep.range, sheetUrl: prep.url }\n  );\n}\n\nconst workbook = {\n  id: prep.workbookId,\n  tab: prep.tab,\n  title: prep.title,\n  url: prep.url,\n  xlsxUrl: prep.xlsxUrl,\n  headers: prep.headers,\n  createdAt: Date.now(),\n  // Cosmetic-only: bold + frozen header and the plain-text Student ID column.\n  formatted: Boolean(formatWrite && !formatWrite.error && formatWrite.replies)\n};\n\nif (wf.session) wf.session.workbook = workbook;\nconst history = Array.isArray(wf.workbooks) ? wf.workbooks : [];\nhistory.push({\n  sessionId: wf.session ? wf.session.sessionId : start.sessionId,\n  lecture: wf.session ? wf.session.lecture : start.lecture,\n  id: workbook.id,\n  tab: workbook.tab,\n  title: workbook.title,\n  url: workbook.url,\n  xlsxUrl: workbook.xlsxUrl,\n  createdAt: workbook.createdAt\n});\nwf.workbooks = history.slice(-20);\n\nreturn [{ json: Object.assign({}, start, {\n  attendanceSheet: {\n    sessionId: wf.session ? wf.session.sessionId : start.sessionId,\n    tab: workbook.tab,\n    title: workbook.title,\n    url: workbook.url,\n    xlsxUrl: workbook.xlsxUrl\n  }\n}) }];"
       },
       "id": "activate-session",
       "name": "Activate Session",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1808,
+        2064,
         -112
       ]
     },
@@ -1355,6 +1360,19 @@
       "position": [
         784,
         1472
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The Google Sheets node maps input keys to columns, so the header row is\n// written by feeding it one item whose keys are the Attendance columns.\nconst prep = $('Prepare Sheet Setup').first().json;\nreturn [{ json: prep && prep.ok && prep.headerRowItem ? prep.headerRowItem : {} }];"
+      },
+      "id": "header-row-item",
+      "name": "Header Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1296,
+        -112
       ]
     }
   ],
@@ -1693,7 +1711,7 @@
       "main": [
         [
           {
-            "node": "Write Attendance Headers",
+            "node": "Header Row",
             "type": "main",
             "index": 0
           }
@@ -1785,6 +1803,17 @@
         [
           {
             "node": "Respond Export Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Header Row": {
+      "main": [
+        [
+          {
+            "node": "Write Attendance Headers",
             "type": "main",
             "index": 0
           }

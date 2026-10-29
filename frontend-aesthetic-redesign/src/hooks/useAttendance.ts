@@ -57,6 +57,8 @@ export interface QrPayload {
 interface ApiResponse {
   ok?: boolean;
   error?: string;
+  /** Human-readable reason the workflow produced for a failure. */
+  detail?: string;
   active?: boolean;
   lecture?: string;
   sessionId?: string;
@@ -368,6 +370,9 @@ export function useAttendance(key: string | null) {
 
       if (!data.ok) {
         const reason = data.error || "UNKNOWN_START_ERROR";
+        // The workflow reports what actually went wrong (e.g. the Sheets API
+        // error behind a refused workbook); show it instead of just the code.
+        const detail = data.detail ? ` — ${data.detail}` : "";
         if (
           reason === "LECTURE_LOCATION_INVALID" ||
           reason === "LECTURE_LOCATION_STALE" ||
@@ -384,8 +389,8 @@ export function useAttendance(key: string | null) {
           reason === "unauthorized"
             ? "Session start rejected: wrong key"
             : reason.startsWith("WORKBOOK_")
-              ? `Session not started — its attendance sheet could not be created (${reason})`
-              : `Session start rejected: ${reason}`,
+              ? `Session not started — its attendance sheet could not be created (${reason})${detail}`
+              : `Session start rejected: ${reason}${detail}`,
           "error",
         );
         setStartDisabled(false);

@@ -17,26 +17,38 @@ Create Attendance Workbook
                     Google Sheets "Create spreadsheet" with a single
                     Attendance tab (Google omits the default Sheet1 when the
                     create call lists sheets)
-Prepare Sheet Setup builds the two request bodies from the create response:
-                    values.update for the header row and batchUpdate for
-                    bold + frozen headers and a plain-text Student ID column
+Prepare Sheet Setup reads the create response and keeps the tab name Google
+                    actually used (never an assumed "Attendance"), builds the
+                    header-row item, and the batchUpdate body for bold +
+                    frozen headers and a plain-text Student ID column
+Header Row          one item keyed by the 17 Attendance columns
 Write Attendance Headers
-                    PUT  /v4/spreadsheets/{id}/values/Attendance!A1:Q1?valueInputOption=RAW
+                    Google Sheets "Sheet Within Document → Append" in
+                    auto-map mode: on an empty tab n8n writes the input keys
+                    as the header row, and the empty values leave no data row
 Format Attendance Sheet
-                    POST /v4/spreadsheets/{id}:batchUpdate
+                    POST /v4/spreadsheets/{id}:batchUpdate (cosmetic only)
 Activate Session    stores the workbook on the live session, appends it to the
                     workbook history used by /dqr-export, and answers
 ```
 
-Both HTTP nodes reuse the workflow's Google Sheets OAuth2 credential
-(`drive.file` + `spreadsheets` scopes), so no extra credential is required.
+The header row is written by the **same Google Sheets node** that writes
+attendance rows, so it uses the credential and transport that are already
+proven; only the cosmetic formatting and `/dqr-export` use plain HTTP Request
+nodes with that same OAuth2 credential (`drive.file` + `spreadsheets` scopes),
+so no extra credential is required.
+
+`Activate Session` verifies the write by checking that the sheet node echoed
+back an item carrying every Attendance column, and refuses the start when it
+did not. Its `detail` carries the underlying Sheets error, the tab name and the
+A1 range so a refused start says what actually happened.
 
 The session is only live once the workbook exists **and** its header row was
 written. Otherwise `Activate Session` deletes the half-started session and
 answers `WORKBOOK_CREATE_FAILED` or `WORKBOOK_SETUP_FAILED`, because an
-`append` into a sheet without headers would invent its own columns. The two
-Sheets/HTTP nodes are set to *continue (regular output)* so those failures are
-reported as a refused start instead of a 500.
+`append` into a sheet without headers would invent its own columns. Those nodes
+are set to *continue (regular output)* so such failures are reported as a
+refused start instead of a 500.
 
 The request must also carry the professor-confirmed lecture-hall reference:
 
