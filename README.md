@@ -178,7 +178,9 @@ The important part is that **expiration is enforced by the backend**, not just b
 | 🔐 **Signed tickets** | HMAC-SHA256 protects temporary attendance tickets |
 | 🛡️ **Server-side validation** | The browser is never trusted |
 | 🚫 **Duplicate prevention** | The same student cannot register twice in one session |
-| 📊 **Google Sheets** | Attendance records are stored automatically |
+| 📗 **Sheet per session** | Every **Start** creates a brand-new Google Sheet with the Attendance columns |
+| 📊 **Google Sheets** | Attendance records are stored automatically in that session's sheet |
+| ⬇️ **Excel download** | **Stop** returns the session sheet with a one-click `.xlsx` download |
 | 📧 **Gmail confirmation** | Successful attendance triggers an email |
 | 🛑 **Session control** | Stopping a session invalidates pending attendance |
 | ⚙️ **n8n orchestration** | Backend logic and integrations are handled through n8n |
@@ -346,6 +348,43 @@ Session inactive
       └── Pending tickets  → ❌ Invalid
 ```
 
+The stop response also carries the session's workbook, so the dashboard can
+show it and offer the Excel download immediately.
+
+#### 8. Per-Session Attendance Sheet
+
+Every session writes to **its own** spreadsheet instead of one shared log:
+
+```text
+Press START
+      │
+      ▼
+n8n creates a new spreadsheet
+"Attendance - <Lecture> - <Session ID>"
+      │
+      ├── one tab:  Attendance
+      ├── row 1:    the 17 Attendance headers (bold, frozen)
+      └── column B: plain text, so Student IDs keep leading zeros
+      │
+      ▼
+Students check in → rows are appended to that sheet only
+      │
+      ▼
+Press STOP  →  dashboard shows the sheet
+      │
+      ├── Open sheet      → Google Sheets
+      └── Download .xlsx  → /dqr-export streams the workbook
+```
+
+A session only goes live once its workbook exists **and** its header row was
+written; otherwise the start is refused (`WORKBOOK_CREATE_FAILED` /
+`WORKBOOK_SETUP_FAILED`) and nothing is left half-started.
+
+The download is served by the workflow with its own Google credential, so it
+works regardless of which Google account the professor is signed in with. If
+that call fails, the dashboard falls back to Google's own
+`export?format=xlsx` link.
+
 ---
 
 ## 🎬 System Demo
@@ -354,10 +393,11 @@ Session inactive
 
 The professor dashboard allows the instructor to:
 
-- Start an attendance session
+- Start an attendance session (which creates that session's Google Sheet)
 - Display the current QR code
 - Monitor the token countdown
 - Stop the attendance session
+- Open the session sheet and download it as Excel
 
 <!-- TODO: Add docs/images/professor-dashboard.png -->
 <p align="center">
@@ -386,7 +426,8 @@ The scan is validated **before** the student receives a temporary signed ticket.
 
 ### 📊 Attendance Recording
 
-Once the submission passes validation, n8n records the attendance in Google Sheets.
+Once the submission passes validation, n8n records the attendance in the
+session's own Google Sheet — the one created when the professor pressed Start.
 
 <!-- TODO: Add docs/images/google-sheets.png. Use synthetic test data. -->
 <p align="center">
@@ -588,7 +629,8 @@ dynamic-qr-attendance/
 ├── frontend/
 │   ├── professor-dashboard.html      # built dashboard bundle (map included)
 │   ├── student-attendance.html
-│   └── location-core.js              # shared acquisition, validation, decision
+│   ├── location-core.js              # shared acquisition, validation, decision
+│   └── session-sheet.js              # shared session-workbook helpers
 │
 └── docs/
     │
@@ -672,18 +714,33 @@ professor-dashboard.html?key=YOUR_PROF_KEY
 > the same directory. Opening `student-attendance.html` straight from the
 > filesystem will not work because module imports require an HTTP(S) origin.
 
-### 4. Prepare Google Sheets
+### 4. Google Sheets
 
-Create a spreadsheet containing an `Attendance` sheet with the following headers:
+**Nothing to prepare.** Pressing **Start** creates a brand-new spreadsheet for
+that session, named `Attendance - <Lecture> - <Session ID>`, with a single
+`Attendance` tab and this header row:
 
 ```text
-Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status | Instructor Latitude | Instructor Longitude | Student Latitude | Student Longitude | Distance (m) | Instructor GPS Accuracy (m) | Student GPS Accuracy (m) | Location Status | Location Timestamp | Legacy review column (unused)
+Session ID | Student ID | Device ID | Student Name | Email | Attendance Time | Token | Status | Instructor Latitude | Instructor Longitude | Student Latitude | Student Longitude | Distance (m) | Instructor GPS Accuracy (m) | Student GPS Accuracy (m) | Location Status | Location Timestamp
 ```
 
-If student IDs can contain leading zeros, format the **Student ID** column as **Plain text**.
-Append the ten location headers after the original `Status` column. Do not
-rename the original columns. Refresh the Google Sheets node schema after
-changing the headers.
+The workflow writes the headers itself (bold, frozen first row) and formats
+**Student ID** as **plain text**, so student IDs keep their leading zeros
+without any manual column setup.
+
+Requirements:
+
+- The Google Sheets OAuth2 credential must be allowed to **create**
+  spreadsheets. The default n8n scopes (`drive.file` + `spreadsheets` +
+  `drive.metadata`) are enough — the two HTTP nodes and the `/dqr-export`
+  download reuse that same credential, so no extra credential is needed.
+- Workbooks are created in the Drive of the Google account behind that
+  credential, one per session. They are not deleted by the workflow.
+
+The original shared spreadsheet (`YOUR_GOOGLE_SHEET_ID`) is now only a
+**fallback** for a session that has no workbook of its own — for example a
+session that was already running when the workflow was updated. Sessions
+started by this version never write to it.
 
 ### 5. Activate and Test
 
@@ -735,6 +792,15 @@ The system should be tested against both successful and invalid flows.
 | Invalid coordinates | ❌ `INVALID_LOCATION` |
 | Student location denied or unavailable | ❌ `LOCATION_UNAVAILABLE` |
 | Duplicate concurrent submission | ❌ Duplicate protection applies |
+| Start with Google Sheets reachable | ✅ New workbook created with the Attendance headers |
+| Start while the spreadsheet cannot be created | ❌ `WORKBOOK_CREATE_FAILED`, no session started |
+| Start when the header row cannot be written | ❌ `WORKBOOK_SETUP_FAILED`, no session started |
+| Rejected start (wrong key / bad location) | ✅ No spreadsheet is created |
+| Valid submission | ✅ Row lands in **that session's** sheet only |
+| Stop | ✅ Session sheet returned with `url` + `.xlsx` export |
+| `/dqr-export` with the professor key | ✅ Streams the workbook as `.xlsx` |
+| `/dqr-export` without the key | ❌ `unauthorized` (401) |
+| `/dqr-export` for an unknown session | ❌ `SHEET_NOT_FOUND` (404) |
 
 ---
 
@@ -759,6 +825,11 @@ The current prototype also has several intentional limitations:
 - The lecture-hall reference is a map pin chosen by the professor; it is not
   cryptographic proof of the professor's presence, and a professor could pin the
   wrong room (checking the pin is an operational control)
+- One spreadsheet per session accumulates in the Google account behind the
+  workflow credential; the workflow never deletes them (archive or clean up in
+  Drive)
+- The `/dqr-export` download is protected by the shared professor key only, so
+  anyone holding that key can download the most recent session sheet
 - Rejected attempts are not written to Sheets, so the audit trail there only
   contains verified attendance
 - n8n workflow static data is not transaction-safe under multi-instance

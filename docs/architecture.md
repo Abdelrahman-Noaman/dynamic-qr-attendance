@@ -16,8 +16,12 @@ flowchart TD
     T -->|POST dqr-submit + one-time location| SV[Submission validation]
     SV --> L[Haversine and freshness checks]
     L --> D[Duplicate check]
-    D -->|Verified or rejected attempt| G[Google Sheets]
+    D -->|Verified or rejected attempt| G[Session workbook in Google Sheets]
     G -->|Verified only| M[Gmail confirmation]
+    N -->|On start| W[Create spreadsheet + Attendance headers]
+    W --> G
+    P -->|GET dqr-export| X[.xlsx streamed by n8n]
+    G --> X
 ```
 
 ## Responsibilities
@@ -25,6 +29,15 @@ flowchart TD
 ### Professor dashboard
 
 `frontend/professor-dashboard.html` starts and stops a session, polls for the current token, renders the QR code with QRCode.js, and displays the token countdown. The professor key is read from the page URL and sent to the protected professor endpoints.
+
+It also owns the session-workbook panel
+(`src/components/SessionSheetPanel.tsx`): the workbook reported by
+`/dqr-start`, `/dqr-qr` and `/dqr-stop` is shown as soon as the session exists
+and stays visible after the stop. *Download .xlsx* fetches `/dqr-export` and
+saves the blob; if that response is not a spreadsheet (JSON error, proxy HTML,
+non-2xx) the panel opens Google's own `export?format=xlsx` link instead. The
+shared URL/naming rules live in `frontend/session-sheet.js` so the tests cover
+the same code the dashboard runs.
 
 ### Student page
 
@@ -55,21 +68,39 @@ bundle. The student page does not load the map at all.
 
 ### n8n
 
-`n8n/dynamic-qr-attendance.json` exposes five webhooks:
+`n8n/dynamic-qr-attendance.json` exposes six webhooks:
 
-- `POST /dqr-start`
+- `POST /dqr-start` — also creates that session's spreadsheet
 - `GET /dqr-qr`
-- `POST /dqr-stop`
+- `POST /dqr-stop` — returns the session sheet with its export link
 - `GET /dqr-check`
 - `POST /dqr-submit`
+- `GET /dqr-export` — streams the session workbook as `.xlsx`
 
 The workflow uses n8n workflow static data for the currently active session. This is appropriate for the prototype's single active session model, but it is not a substitute for a shared database in a multi-instance deployment.
 
 ### Google Sheets
 
-The `Attendance` sheet is used both to look up existing attendance for a
-session and to append new attendance rows. A submission is rejected when either
-the `(Session ID, Student ID)` or `(Session ID, Device ID)` pair already exists.
+Each session owns a spreadsheet, created by the workflow when the professor
+presses Start: one `Attendance` tab, the 17 Attendance headers written by the
+workflow (bold, frozen), and a plain-text `Student ID` column so identifiers
+keep their leading zeros. The session state holds the workbook id, tab, title,
+editor URL and `.xlsx` export URL; the workbook history keeps the last 20 so a
+sheet can still be resolved after the session is stopped.
+
+That session's `Attendance` tab is used both to look up existing attendance for
+a session and to append new attendance rows. A submission is rejected when
+either the `(Session ID, Student ID)` or `(Session ID, Device ID)` pair already
+exists. The three sheet nodes take their document id from
+`Validate Submission`, so nothing is ever written to another session's
+workbook. A session with no workbook of its own — only possible for one already
+running when the workbook step was introduced — falls back to the shared
+prototype spreadsheet.
+
+Two plain HTTP Request nodes write the headers and the formatting, and a third
+serves `/dqr-export` by calling the Drive export endpoint. All three reuse the
+Google Sheets OAuth2 credential (`drive.file` + `spreadsheets` scopes), so no
+additional credential is configured.
 
 ### Gmail
 
@@ -93,3 +124,9 @@ be served over HTTP(S) together with its sibling module file; opening the page
 from the filesystem will not initialise.
 
 The professor key and HMAC secret are placeholders in the public export. Configure private values in the n8n workflow before activation.
+
+`/dqr-export` is protected by the same shared professor key as the other
+professor endpoints, and it can only reach workbooks this workflow created (the
+id comes from workflow state, never from the request). It is a download of
+student names, IDs and emails, so the professor key must stay as private as the
+dashboard URL that carries it.

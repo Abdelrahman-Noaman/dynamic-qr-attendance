@@ -1,10 +1,12 @@
 import type { FormEvent } from "react";
 import type { Status, Tone } from "../hooks/useAttendance";
 import type { LectureLocation } from "../utils/lectureLocation";
+import type { SessionSheet, SheetDownloadNotice } from "../utils/sessionSheet";
 import { cn } from "../utils/cn";
 import { AlertIcon, LockIcon, PlayIcon, StopIcon } from "./Icons";
 import { LocationPicker } from "./LocationPicker";
 import { MagneticButton } from "./MagneticButton";
+import { SessionSheetPanel } from "./SessionSheetPanel";
 
 interface Props {
   lecture: string;
@@ -25,6 +27,10 @@ interface Props {
   maxAccuracyMeters: number;
   onConfirmLectureLocation: (location: LectureLocation) => void;
   onClearLectureLocation: () => void;
+  /** The workbook the workflow created for this session. */
+  attendanceSheet: SessionSheet | null;
+  sheetDownload: SheetDownloadNotice;
+  onDownloadSheet: () => void;
 }
 
 const TONE: Record<Tone, string> = {
@@ -106,6 +112,9 @@ export function ControlDeck({
   maxAccuracyMeters,
   onConfirmLectureLocation,
   onClearLectureLocation,
+  attendanceSheet,
+  sheetDownload,
+  onDownloadSheet,
 }: Props) {
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -250,6 +259,14 @@ export function ControlDeck({
       </div>
 
       <StatusLine status={status} />
+
+      {/* The session's own workbook: created on Start, downloaded after Stop. */}
+      <SessionSheetPanel
+        sheet={attendanceSheet}
+        live={live}
+        notice={sheetDownload}
+        onDownload={onDownloadSheet}
+      />
     </form>
   );
 }
