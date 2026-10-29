@@ -142,3 +142,41 @@ export function ScanGlyph(p: P) {
     </svg>
   );
 }
+
+/** Spreadsheet glyph for the session workbook panel */
+export function SheetIcon(p: P) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...base}
+      {...p}
+    >
+      <rect x="3.5" y="3.5" width="17" height="17" rx="3" />
+      <path d="M3.5 9.5h17M9.5 9.5v11M3.5 15h17" />
+    </svg>
+  );
+}
+
+export function DownloadIcon(p: P) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...base}
+      {...p}
+    >
+      <path d="M12 3.5v11" />
+      <path d="M7.5 10.5 12 15l4.5-4.5" />
+      <path d="M4.5 19.5h15" />
+    </svg>
+  );
+}

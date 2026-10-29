@@ -7,9 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node tests/location-policy.test.mjs && node --test tests/location-acquisition.test.mjs tests/student-page.test.mjs tests/lecture-location.test.mjs",
-    "test:location": "node tests/location-policy.test.mjs",
-    "test:acquisition": "node --test tests/location-acquisition.test.mjs tests/student-page.test.mjs tests/lecture-location.test.mjs"
+    "test": "node --test tests/location-policy.test.mjs tests/location-acquisition.test.mjs tests/student-page.test.mjs tests/lecture-location.test.mjs tests/session-workbook.test.mjs tests/session-sheet.test.mjs",
+    "test:location": "node --test tests/location-policy.test.mjs",
+    "test:acquisition": "node --test tests/location-acquisition.test.mjs tests/student-page.test.mjs tests/lecture-location.test.mjs",
+    "test:workbook": "node --test tests/session-workbook.test.mjs tests/session-sheet.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/unbounded": "^5.3.0",

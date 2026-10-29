@@ -6,6 +6,38 @@ This document describes the behavior present in the exported n8n workflow. It do
 
 `POST /dqr-start` checks the submitted professor key. For an authorized request, it creates a session ID, stores the lecture name, creates the first random token, and marks the session active in workflow static data.
 
+An authorized start also creates **a new spreadsheet for that session**:
+
+```text
+Create Session      validates the key and the lecture location, then plans the
+                    workbook: title "Attendance - <Lecture> - <Session ID>",
+                    tab "Attendance", and the 17 Attendance headers
+Start OK?           a rejected start is answered immediately - no spreadsheet
+Create Attendance Workbook
+                    Google Sheets "Create spreadsheet" with a single
+                    Attendance tab (Google omits the default Sheet1 when the
+                    create call lists sheets)
+Prepare Sheet Setup builds the two request bodies from the create response:
+                    values.update for the header row and batchUpdate for
+                    bold + frozen headers and a plain-text Student ID column
+Write Attendance Headers
+                    PUT  /v4/spreadsheets/{id}/values/Attendance!A1:Q1?valueInputOption=RAW
+Format Attendance Sheet
+                    POST /v4/spreadsheets/{id}:batchUpdate
+Activate Session    stores the workbook on the live session, appends it to the
+                    workbook history used by /dqr-export, and answers
+```
+
+Both HTTP nodes reuse the workflow's Google Sheets OAuth2 credential
+(`drive.file` + `spreadsheets` scopes), so no extra credential is required.
+
+The session is only live once the workbook exists **and** its header row was
+written. Otherwise `Activate Session` deletes the half-started session and
+answers `WORKBOOK_CREATE_FAILED` or `WORKBOOK_SETUP_FAILED`, because an
+`append` into a sheet without headers would invent its own columns. The two
+Sheets/HTTP nodes are set to *continue (regular output)* so those failures are
+reported as a refused start instead of a 500.
+
 The request must also carry the professor-confirmed lecture-hall reference:
 
 ```text
@@ -34,6 +66,11 @@ The start step generates a six-character token using an uppercase alphanumeric a
 ## 3. Serve and Rotate QR
 
 `GET /dqr-qr` checks the professor key and returns the active session, current token, lecture, and remaining lifetime. The token lifetime is 10 seconds. When the lifetime has elapsed, the old token is overwritten with a new token.
+
+The response also carries `attendanceSheet` (`sessionId`, `tab`, `title`, `url`,
+`xlsxUrl`) so the dashboard can show the workbook while the session is live. An
+**inactive** session answers `active: false` together with the same
+`attendanceSheet`, which is what keeps the download available after a refresh.
 
 ## 4. Validate Student Scan
 
@@ -100,10 +137,18 @@ Google Sheets is queried for the submitted session ID. If a matching row has
 either the submitted student ID or device ID, the workflow returns `DUPLICATE`
 and does not append another row.
 
+The lookup targets the session's own workbook: `Validate Submission` publishes
+`workbookId` from the session state, and the three sheet nodes
+(`Check Duplicate`, `Save Attendance`, `Save Rejected Location`) all use it as
+their document ID. When a session somehow has no workbook — only possible for a
+session that was already running before the workbook step existed — they fall
+back to the shared prototype sheet and `workbookIsFallback` is `true`.
+
 ## 8. Record Attendance
 
 Only accepted submissions reach this node. A row is appended to the
-`Attendance` sheet with the original fields plus the instructor/student
+`Attendance` tab **of that session's workbook** with the original fields plus
+the instructor/student
 coordinates, distance, both accuracy values, location status, location
 timestamp, and review status. Column names and order are unchanged. The
 coordinates written are the exact values used in the distance calculation, and
@@ -127,12 +172,58 @@ credential ID for that node.
 
 `POST /dqr-stop` checks the professor key, marks the session inactive, and clears its token. New scans fail, and existing tickets fail the active-session check during submission.
 
+The response returns what the professor needs to close the lecture:
+
+```json
+{
+  "ok": true,
+  "sessionId": "S20261029-ABCD",
+  "lecture": "Data Security",
+  "locationStats": { "verified": 12, "outsideRadius": 1, "rejected": 2 },
+  "attendanceSheet": {
+    "sessionId": "S20261029-ABCD",
+    "tab": "Attendance",
+    "title": "Attendance - Data Security - S20261029-ABCD",
+    "url": "https://docs.google.com/spreadsheets/d/<id>/edit",
+    "xlsxUrl": "https://docs.google.com/spreadsheets/d/<id>/export?format=xlsx"
+  }
+}
+```
+
+The workbook reference is **kept** on the stopped session (and in the workbook
+history), so the sheet can still be opened and downloaded afterwards.
+
+## 11. Download the Session Workbook
+
+`GET /dqr-export?key=<professor key>[&s=<session id>]` streams that session's
+workbook as `.xlsx`:
+
+```text
+Resolve Export   checks the key and resolves the workbook from the session or
+                 from the workbook history (last 20 sessions); without `s` it
+                 uses the current/last session
+Export Ready?    unauthorised -> 401, unknown session -> 404
+Export XLSX      GET https://www.googleapis.com/drive/v3/files/{id}/export
+                 ?mimeType=application/vnd.openxmlformats-officedocument
+                   .spreadsheetml.sheet
+                 using the workflow's Google Sheets OAuth2 credential, returned
+                 as binary data in the `data` field
+Respond XLSX     Respond to Webhook -> binary (`data`)
+```
+
+Serving the file through the workflow means the download uses **n8n's** Google
+credential rather than the professor's browser session, so it works even when
+the two accounts differ. If the export call fails, its error output answers
+with JSON (`EXPORT_FAILED`) and the dashboard falls back to Google's own
+`export?format=xlsx` link.
+
 ## Endpoint Summary
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
-| `/dqr-start` | POST | Create the active session |
+| `/dqr-start` | POST | Create the active session **and its own spreadsheet** |
 | `/dqr-qr` | GET | Read or rotate the current QR token |
-| `/dqr-stop` | POST | Close the active session |
+| `/dqr-stop` | POST | Close the active session and return its sheet |
 | `/dqr-check` | GET | Validate a QR scan and issue a ticket |
 | `/dqr-submit` | POST | Validate and record attendance |
+| `/dqr-export` | GET | Stream the session workbook as `.xlsx` |

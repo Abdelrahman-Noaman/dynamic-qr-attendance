@@ -406,12 +406,13 @@ test("QR rotation, ticket signing, duplicates, sheet mappings and email routing 
   assert.ok(node("Check Duplicate"));
   assert.ok(node("Already Submitted?"));
   assert.deepEqual(
-    workflow.connections["Verified Location?"].main[0].map((edge) => edge.node),
+    workflow.connections["Verified Attendance?"].main[0].map((edge) => edge.node),
     ["Use Outlook Email?"],
   );
 
   const mapping = node("Save Attendance").parameters.columns.value;
-  assert.equal(Object.keys(mapping).length, 18);
+  assert.deepEqual(Object.keys(mapping), node("Save Attendance").parameters.columns.schema.map((c) => c.id));
+  assert.equal(Object.keys(mapping).length, 17);
   assert.match(mapping["Distance (m)"], /distanceMeters/);
   assert.match(mapping["Status"], /'Present'/);
   assert.doesNotMatch(mapping["Status"], /Needs Review/);

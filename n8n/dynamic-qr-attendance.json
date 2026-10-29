@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "# ðŸ” Dynamic QR Attendance System\n\nAutomated attendance system for Data Security lectures using short-lived QR tokens.\n\n### How it works\n\n* Professor starts an attendance session.\n* n8n generates a unique session and a QR token.\n* The QR token automatically rotates every **10 seconds**.\n* Students scan the current QR and submit their name, student ID, and email.\n* n8n validates the session and token before accepting the attendance.\n* A signed temporary ticket allows students enough time to complete the form without requiring the QR token to remain valid.\n* Duplicate attendance for the same student and session is rejected.\n* Valid attendance is recorded automatically in **Google Sheets**.\n* A professional **confirmation email** is sent to the student immediately after successful registration.\n* When the professor stops the session, all pending tickets become invalid and new submissions are rejected.\n\n### Main Components\n\n**n8n** â†’ Automation & validation\n**Dynamic QR** â†’ Short-lived access token\n**Google Sheets** â†’ Attendance records\n**Gmail** â†’ Attendance confirmation\n**HTML Pages** â†’ Professor dashboard & student submission page\n\n### Security Concept\n\nThe QR code itself is not a permanent attendance link. Each QR contains a short-lived token that expires after 10 seconds, reducing the risk of students using an old QR code outside the classroom.\n\n> **Start â†’ Generate â†’ Rotate â†’ Scan â†’ Validate â†’ Record â†’ Confirm â†’ Stop**\n",
+        "content": "# ðŸ” Dynamic QR Attendance System\n\nAutomated attendance system for Data Security lectures using short-lived QR tokens.\n\n### How it works\n\n* Professor starts an attendance session.\n* n8n generates a unique session and a QR token.\n* The QR token automatically rotates every **10 seconds**.\n* Students scan the current QR and submit their name, student ID, and email.\n* n8n validates the session and token before accepting the attendance.\n* A signed temporary ticket allows students enough time to complete the form without requiring the QR token to remain valid.\n* Duplicate attendance for the same student and session is rejected.\n* Pressing **Start** creates a **brand-new Google Sheet** for that session, with the Attendance headers already in place.\n* Valid attendance is recorded automatically in **that session's Google Sheet**.\n* A professional **confirmation email** is sent to the student immediately after successful registration.\n* When the professor stops the session, all pending tickets become invalid, new submissions are rejected, and the dashboard shows that session's sheet with an Excel (.xlsx) download.\n\n### Main Components\n\n**n8n** â†’ Automation & validation\n**Dynamic QR** â†’ Short-lived access token\n**Google Sheets** â†’ Attendance records\n**Gmail** â†’ Attendance confirmation\n**HTML Pages** â†’ Professor dashboard & student submission page\n\n### Security Concept\n\nThe QR code itself is not a permanent attendance link. Each QR contains a short-lived token that expires after 10 seconds, reducing the risk of students using an old QR code outside the classroom.\n\n> **Start â†’ Generate â†’ Rotate â†’ Scan â†’ Validate â†’ Record â†’ Confirm â†’ Stop**\n",
         "height": 588,
         "width": 1036
       },
@@ -37,7 +37,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const KEY = 'MySecretyKey2005';\nconst b = $input.first().json.body || {};\n\n// Distance check only. Never raised to compensate for poor GPS.\nconst ATTENDANCE_RADIUS_METERS = 100;\n// Student accuracy ceiling. Also applied to any GPS-sourced reference.\nconst MAX_GPS_ACCURACY_METERS = 50;\nconst MAX_LOCATION_AGE_SECONDS = 30;\nconst FUTURE_TIMESTAMP_TOLERANCE_MS = 60000;\n// A map-confirmed lecture hall is an administrative reference and carries no\n// GPS accuracy requirement, but it must be recent.\nconst LECTURE_LOCATION_MAX_AGE_MINUTES = 60;\n\nif (b.key !== KEY) return [{ json: { ok: false, error: 'unauthorized' } }];\n\nconst blank = value => value === undefined || value === null || String(value).trim() === '';\nconst number = value => typeof value === 'number' ? value : Number(value);\nconst now = Date.now();\nconst fail = (reason, extra = {}) => [{ json: Object.assign({ ok: false, error: reason, locationReason: reason }, extra) }];\n\n// 'map' = professor confirmed the lecture hall on the map (default for this UI).\n// 'gps' = legacy device-GPS reference, still held to the 50 m accuracy target.\nconst source = String(b.instructorLocationSource || 'map').trim().toLowerCase() === 'gps' ? 'gps' : 'map';\n\nif (blank(b.instructorLatitude) || blank(b.instructorLongitude)) {\n  return fail(source === 'map' ? 'LECTURE_LOCATION_MISSING' : 'LOCATION_UNAVAILABLE', { locationSource: source });\n}\n\nconst latitude = number(b.instructorLatitude);\nconst longitude = number(b.instructorLongitude);\nconst coordinatesValid = Number.isFinite(latitude) && Number.isFinite(longitude)\n  && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;\nif (!coordinatesValid) {\n  return fail(source === 'map' ? 'LECTURE_LOCATION_INVALID' : 'INVALID_LOCATION', { locationSource: source });\n}\n\nlet accuracy = null;\nlet confirmedAt = null;\n\nif (source === 'map') {\n  confirmedAt = number(b.instructorLocationConfirmedAt);\n  if (!Number.isFinite(confirmedAt) || confirmedAt <= 0 || confirmedAt > now + FUTURE_TIMESTAMP_TOLERANCE_MS) {\n    return fail('LECTURE_LOCATION_INVALID', { locationSource: source });\n  }\n  if (now - confirmedAt > LECTURE_LOCATION_MAX_AGE_MINUTES * 60000) {\n    return fail('LECTURE_LOCATION_STALE', { locationSource: source, lectureLocationMaxAgeMinutes: LECTURE_LOCATION_MAX_AGE_MINUTES });\n  }\n} else {\n  accuracy = number(b.instructorAccuracy);\n  const timestamp = number(b.instructorLocationTimestamp);\n  if (!Number.isFinite(accuracy) || accuracy <= 0) return fail('INVALID_LOCATION', { locationSource: source });\n  if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp > now + FUTURE_TIMESTAMP_TOLERANCE_MS) {\n    return fail('INVALID_LOCATION', { locationSource: source });\n  }\n  if (now - timestamp > MAX_LOCATION_AGE_SECONDS * 1000) return fail('STALE_LOCATION', { locationSource: source });\n  if (accuracy > MAX_GPS_ACCURACY_METERS) return fail('LOW_ACCURACY', { locationSource: source, maxAccuracyMeters: MAX_GPS_ACCURACY_METERS });\n  confirmedAt = timestamp;\n}\n\n// CONFIRMED means \"the professor confirmed this lecture hall on the map\".\n// It is not a statement about the professor's device accuracy or presence.\nconst locationQualityStatus = source === 'map' ? 'CONFIRMED' : 'VERIFIED';\n\nconst rand = (n) => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };\nconst wf = $getWorkflowStaticData('global');\nconst sessionId = 'S' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + rand(4);\nwf.session = {\n  active: true,\n  sessionId,\n  lecture: String(b.lecture || 'Lecture').trim(),\n  token: rand(6),\n  issuedAt: Date.now(),\n  location: { latitude, longitude, accuracy, source, confirmedAt },\n  locationQualityStatus,\n  locationConfig: { radiusMeters: ATTENDANCE_RADIUS_METERS, maxAccuracyMeters: MAX_GPS_ACCURACY_METERS, maxAgeSeconds: MAX_LOCATION_AGE_SECONDS },\n  locationStats: { verified: 0, outsideRadius: 0, rejected: 0 }\n};\nreturn [{ json: {\n  ok: true,\n  sessionId,\n  lecture: wf.session.lecture,\n  attendanceRadiusMeters: ATTENDANCE_RADIUS_METERS,\n  maxAccuracyMeters: MAX_GPS_ACCURACY_METERS,\n  maxLocationAgeSeconds: MAX_LOCATION_AGE_SECONDS,\n  lectureLocation: { latitude, longitude, source, confirmedAt },\n  locationQualityStatus\n} }];"
+        "jsCode": "const KEY = 'MySecretyKey2005';\nconst b = $input.first().json.body || {};\n\n// Distance check only. Never raised to compensate for poor GPS.\nconst ATTENDANCE_RADIUS_METERS = 100;\n// Student accuracy ceiling. Also applied to any GPS-sourced reference.\nconst MAX_GPS_ACCURACY_METERS = 50;\nconst MAX_LOCATION_AGE_SECONDS = 30;\nconst FUTURE_TIMESTAMP_TOLERANCE_MS = 60000;\n// A map-confirmed lecture hall is an administrative reference and carries no\n// GPS accuracy requirement, but it must be recent.\nconst LECTURE_LOCATION_MAX_AGE_MINUTES = 60;\n\nif (b.key !== KEY) return [{ json: { ok: false, error: 'unauthorized' } }];\n\nconst blank = value => value === undefined || value === null || String(value).trim() === '';\nconst number = value => typeof value === 'number' ? value : Number(value);\nconst now = Date.now();\nconst fail = (reason, extra = {}) => [{ json: Object.assign({ ok: false, error: reason, locationReason: reason }, extra) }];\n\n// 'map' = professor confirmed the lecture hall on the map (default for this UI).\n// 'gps' = legacy device-GPS reference, still held to the 50 m accuracy target.\nconst source = String(b.instructorLocationSource || 'map').trim().toLowerCase() === 'gps' ? 'gps' : 'map';\n\nif (blank(b.instructorLatitude) || blank(b.instructorLongitude)) {\n  return fail(source === 'map' ? 'LECTURE_LOCATION_MISSING' : 'LOCATION_UNAVAILABLE', { locationSource: source });\n}\n\nconst latitude = number(b.instructorLatitude);\nconst longitude = number(b.instructorLongitude);\nconst coordinatesValid = Number.isFinite(latitude) && Number.isFinite(longitude)\n  && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;\nif (!coordinatesValid) {\n  return fail(source === 'map' ? 'LECTURE_LOCATION_INVALID' : 'INVALID_LOCATION', { locationSource: source });\n}\n\nlet accuracy = null;\nlet confirmedAt = null;\n\nif (source === 'map') {\n  confirmedAt = number(b.instructorLocationConfirmedAt);\n  if (!Number.isFinite(confirmedAt) || confirmedAt <= 0 || confirmedAt > now + FUTURE_TIMESTAMP_TOLERANCE_MS) {\n    return fail('LECTURE_LOCATION_INVALID', { locationSource: source });\n  }\n  if (now - confirmedAt > LECTURE_LOCATION_MAX_AGE_MINUTES * 60000) {\n    return fail('LECTURE_LOCATION_STALE', { locationSource: source, lectureLocationMaxAgeMinutes: LECTURE_LOCATION_MAX_AGE_MINUTES });\n  }\n} else {\n  accuracy = number(b.instructorAccuracy);\n  const timestamp = number(b.instructorLocationTimestamp);\n  if (!Number.isFinite(accuracy) || accuracy <= 0) return fail('INVALID_LOCATION', { locationSource: source });\n  if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp > now + FUTURE_TIMESTAMP_TOLERANCE_MS) {\n    return fail('INVALID_LOCATION', { locationSource: source });\n  }\n  if (now - timestamp > MAX_LOCATION_AGE_SECONDS * 1000) return fail('STALE_LOCATION', { locationSource: source });\n  if (accuracy > MAX_GPS_ACCURACY_METERS) return fail('LOW_ACCURACY', { locationSource: source, maxAccuracyMeters: MAX_GPS_ACCURACY_METERS });\n  confirmedAt = timestamp;\n}\n\n// CONFIRMED means \"the professor confirmed this lecture hall on the map\".\n// It is not a statement about the professor's device accuracy or presence.\nconst locationQualityStatus = source === 'map' ? 'CONFIRMED' : 'VERIFIED';\n\n// ---- Per-session attendance workbook -------------------------------------\n// Every session gets its own spreadsheet with the same Attendance columns, so\n// the professor downloads one clean file per lecture instead of filtering a\n// shared sheet. The plan is built here and executed by the nodes that follow.\nconst ATTENDANCE_TAB = 'Attendance';\nconst ATTENDANCE_HEADERS = ['Session ID', 'Student ID', 'Device ID', 'Student Name', 'Email', 'Attendance Time', 'Token', 'Status', 'Instructor Latitude', 'Instructor Longitude', 'Student Latitude', 'Student Longitude', 'Distance (m)', 'Instructor GPS Accuracy (m)', 'Student GPS Accuracy (m)', 'Location Status', 'Location Timestamp'];\n// Google Drive rejects these characters in file names.\nconst safeTitle = value => String(value).replace(/[\\\\/?*[\\]:]/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 80);\n\nconst rand = (n) => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };\nconst wf = $getWorkflowStaticData('global');\nconst sessionId = 'S' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + rand(4);\nwf.session = {\n  active: true,\n  sessionId,\n  lecture: String(b.lecture || 'Lecture').trim(),\n  token: rand(6),\n  issuedAt: Date.now(),\n  location: { latitude, longitude, accuracy, source, confirmedAt },\n  locationQualityStatus,\n  locationConfig: { radiusMeters: ATTENDANCE_RADIUS_METERS, maxAccuracyMeters: MAX_GPS_ACCURACY_METERS, maxAgeSeconds: MAX_LOCATION_AGE_SECONDS },\n  locationStats: { verified: 0, outsideRadius: 0, rejected: 0 }\n};\nreturn [{ json: {\n  ok: true,\n  sessionId,\n  lecture: wf.session.lecture,\n  attendanceRadiusMeters: ATTENDANCE_RADIUS_METERS,\n  maxAccuracyMeters: MAX_GPS_ACCURACY_METERS,\n  maxLocationAgeSeconds: MAX_LOCATION_AGE_SECONDS,\n  lectureLocation: { latitude, longitude, source, confirmedAt },\n  locationQualityStatus,\n  workbookTitle: 'Attendance - ' + safeTitle(wf.session.lecture) + ' - ' + sessionId,\n  workbookTab: ATTENDANCE_TAB,\n  attendanceHeaders: ATTENDANCE_HEADERS\n} }];"
       },
       "id": "c11e2f4f-9f89-4a70-a9d3-5dc2cc9b8eff",
       "name": "Create Session",
@@ -57,7 +57,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        528,
+        2064,
         0
       ]
     },
@@ -81,7 +81,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const KEY = 'MySecretyKey2005';\nconst q = $input.first().json.query || {};\nif (q.key !== KEY) return [{ json: { ok: false, error: 'unauthorized' } }];\n\nconst wf = $getWorkflowStaticData('global');\nconst s = wf.session;\nif (!s || !s.active) return [{ json: { ok: true, active: false } }];\n\nconst TTL = 10000;\nconst rand = (n) => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };\nconst now = Date.now();\nif (now - s.issuedAt >= TTL) {\n  s.token = rand(6); // old token is overwritten = invalid\n  s.issuedAt += TTL * Math.floor((now - s.issuedAt) / TTL); // keep a clean 10s grid\n}\nreturn [{ json: {\n  ok: true, active: true,\n  sessionId: s.sessionId, lecture: s.lecture,\n  token: s.token,\n  expiresInMs: TTL - (Date.now() - s.issuedAt),\n  attendanceRadiusMeters: s.locationConfig ? s.locationConfig.radiusMeters : 100,\n  instructorAccuracyMeters: s.location ? s.location.accuracy : null,\n  locationStats: s.locationStats || { verified: 0, outsideRadius: 0, rejected: 0 },\n  lectureLocation: s.location ? { latitude: s.location.latitude, longitude: s.location.longitude, source: s.location.source || 'map', confirmedAt: s.location.confirmedAt || null } : null,\n  locationQualityStatus: s.locationQualityStatus || null\n} }];"
+        "jsCode": "const KEY = 'MySecretyKey2005';\nconst q = $input.first().json.query || {};\nif (q.key !== KEY) return [{ json: { ok: false, error: 'unauthorized' } }];\n\nconst wf = $getWorkflowStaticData('global');\nconst s = wf.session;\nconst sheetOf = session => (session && session.workbook ? {\n  sessionId: session.sessionId, tab: session.workbook.tab, title: session.workbook.title,\n  url: session.workbook.url, xlsxUrl: session.workbook.xlsxUrl\n} : null);\n// A stopped session still answers with its sheet so the dashboard can offer the\n// download again after a refresh.\nif (!s || !s.active) return [{ json: { ok: true, active: false, attendanceSheet: sheetOf(s) } }];\n\nconst TTL = 10000;\nconst rand = (n) => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < n; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };\nconst now = Date.now();\nif (now - s.issuedAt >= TTL) {\n  s.token = rand(6); // old token is overwritten = invalid\n  s.issuedAt += TTL * Math.floor((now - s.issuedAt) / TTL); // keep a clean 10s grid\n}\nreturn [{ json: {\n  ok: true, active: true,\n  sessionId: s.sessionId, lecture: s.lecture,\n  token: s.token,\n  expiresInMs: TTL - (Date.now() - s.issuedAt),\n  attendanceRadiusMeters: s.locationConfig ? s.locationConfig.radiusMeters : 100,\n  instructorAccuracyMeters: s.location ? s.location.accuracy : null,\n  locationStats: s.locationStats || { verified: 0, outsideRadius: 0, rejected: 0 },\n  lectureLocation: s.location ? { latitude: s.location.latitude, longitude: s.location.longitude, source: s.location.source || 'map', confirmedAt: s.location.confirmedAt || null } : null,\n  locationQualityStatus: s.locationQualityStatus || null,\n  // The sheet this session writes to, so the dashboard can link it live.\n  attendanceSheet: sheetOf(s)\n} }];"
       },
       "id": "3f9f389e-f28a-435f-ab2a-d536f8f5c57f",
       "name": "Rotate If Needed",
@@ -126,7 +126,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const KEY = 'MySecretyKey2005';\nif (($input.first().json.body || {}).key !== KEY) return [{ json: { ok: false } }];\nconst wf = $getWorkflowStaticData('global');\nif (wf.session) wf.session = { active: false, sessionId: wf.session.sessionId, token: null };\nreturn [{ json: { ok: true } }];"
+        "jsCode": "const KEY = 'MySecretyKey2005';\nconst EMPTY_STATS = { verified: 0, outsideRadius: 0, rejected: 0 };\nif (($input.first().json.body || {}).key !== KEY) return [{ json: { ok: false, error: 'unauthorized' } }];\nconst wf = $getWorkflowStaticData('global');\nconst s = wf.session;\nif (!s) return [{ json: { ok: true, sessionId: null, attendanceSheet: null, locationStats: EMPTY_STATS } }];\n\nconst stats = s.locationStats || EMPTY_STATS;\nconst wb = s.workbook || null;\n// Keep the workbook reference after the stop: the professor still has to be\n// able to open and download this session's sheet.\nwf.session = { active: false, sessionId: s.sessionId, token: null, lecture: s.lecture, workbook: wb, locationStats: stats };\n\nreturn [{ json: {\n  ok: true,\n  sessionId: s.sessionId,\n  lecture: s.lecture,\n  locationStats: stats,\n  attendanceSheet: wb ? { sessionId: s.sessionId, tab: wb.tab, title: wb.title, url: wb.url, xlsxUrl: wb.xlsxUrl } : null\n} }];"
       },
       "id": "486104aa-fd03-4a38-82f4-7443d7e1908c",
       "name": "Stop Session",
@@ -313,7 +313,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const j = $input.first().json;\nconst s = $getWorkflowStaticData('global').session;\nconst DEFAULT_CONFIG = { radiusMeters: 100, maxAccuracyMeters: 50, maxAgeSeconds: 30 };\nconst config = s && s.locationConfig ? s.locationConfig : DEFAULT_CONFIG;\nconst FUTURE_TIMESTAMP_TOLERANCE_MS = 5000;\nconst ROUND = value => Math.round(value * 100) / 100;\n\n// ---- Security checks first (unchanged behaviour) ----\nlet reason = '';\nif (j.sig !== j.expectedSig) reason = 'BAD_TICKET';\nelse if (!Number.isFinite(j.exp) || Date.now() > j.exp) reason = 'TICKET_EXPIRED';\nelse if (!s || !s.active || s.sessionId !== j.sessionId) reason = 'SESSION_CLOSED';\nelse if (!j.name || !j.studentId || !j.email) reason = 'MISSING_FIELDS';\nelse if (!j.deviceId) reason = 'DEVICE_ID_REQUIRED';\nelse if (!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(j.email)) reason = 'BAD_EMAIL';\nconst securityOk = reason === '';\n\n// ---- Location decision: ACCEPTED or REJECTED, never \"needs review\" ----\nlet status = 'REJECTED';\nlet locationStatus = 'LOCATION_UNAVAILABLE';\nlet locationDetail = '';\nlet distanceMeters = null;\nlet accuracyMeters = null;\nlet lectureLocationSource = null;\n\nif (securityOk) {\n  const now = Date.now();\n  const reference = s && s.location ? s.location : null;\n  const referenceValid = reference\n    && Number.isFinite(reference.latitude) && Number.isFinite(reference.longitude)\n    && reference.latitude >= -90 && reference.latitude <= 90\n    && reference.longitude >= -180 && reference.longitude <= 180;\n\n  const values = [j.studentLatitude, j.studentLongitude, j.studentAccuracy, j.studentLocationTimestamp];\n  const missing = values.some(value => value === undefined || value === null || Number.isNaN(value));\n  const finite = values.every(Number.isFinite);\n  const coordinatesValid = finite && j.studentLatitude >= -90 && j.studentLatitude <= 90 && j.studentLongitude >= -180 && j.studentLongitude <= 180;\n  const timestampInFuture = finite && j.studentLocationTimestamp > now + FUTURE_TIMESTAMP_TOLERANCE_MS;\n  const studentAgeMs = finite ? Math.max(0, now - j.studentLocationTimestamp) : null;\n\n  if (!referenceValid) {\n    locationStatus = 'LECTURE_LOCATION_INVALID';\n    locationDetail = 'The session has no valid confirmed lecture-hall reference. Ask the instructor to confirm the lecture location again.';\n  } else if (missing) {\n    locationStatus = 'LOCATION_UNAVAILABLE';\n    locationDetail = 'The submission did not include a complete location reading.';\n  } else if (!finite || !coordinatesValid || j.studentAccuracy <= 0 || timestampInFuture) {\n    locationStatus = 'INVALID_LOCATION';\n    locationDetail = !finite\n      ? 'The location fields were not numeric.'\n      : timestampInFuture\n        ? 'The student reading timestamp is in the future.'\n        : j.studentAccuracy <= 0\n          ? 'The reported accuracy was not a positive distance.'\n          : 'Coordinates were outside the valid latitude/longitude ranges.';\n  } else if (studentAgeMs > config.maxAgeSeconds * 1000) {\n    locationStatus = 'STALE_LOCATION';\n    locationDetail = 'The student reading was ' + (studentAgeMs / 1000).toFixed(1) + ' s old; the limit is ' + config.maxAgeSeconds + ' s.';\n  } else if (j.studentAccuracy > config.maxAccuracyMeters) {\n    locationStatus = 'LOW_ACCURACY';\n    accuracyMeters = j.studentAccuracy;\n    locationDetail = 'The student reading reported +/-' + Math.round(j.studentAccuracy) + ' m, worse than the ' + config.maxAccuracyMeters + ' m accuracy limit.';\n  } else {\n    accuracyMeters = j.studentAccuracy;\n    // Haversine great-circle distance against the professor's confirmed\n    // lecture-hall reference (mean Earth radius 6371000 m).\n    const toRadians = value => value * Math.PI / 180;\n    const earthRadius = 6371000;\n    const dLat = toRadians(j.studentLatitude - reference.latitude);\n    const dLon = toRadians(j.studentLongitude - reference.longitude);\n    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRadians(reference.latitude)) * Math.cos(toRadians(j.studentLatitude)) * Math.sin(dLon / 2) ** 2;\n    const preciseDistance = 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));\n    distanceMeters = ROUND(preciseDistance);\n    if (preciseDistance <= config.radiusMeters) {\n      status = 'ACCEPTED';\n      locationStatus = 'VERIFIED';\n      locationDetail = 'Within the ' + config.radiusMeters + ' m attendance radius (' + distanceMeters + ' m).';\n    } else {\n      locationStatus = 'OUTSIDE_RADIUS';\n      locationDetail = 'Outside the ' + config.radiusMeters + ' m attendance radius (' + distanceMeters + ' m).';\n    }\n  }\n\n  if (reference) {\n    lectureLocationSource = reference.source || 'map';\n  }\n\n  // Session counters (verified + rejected attempts).\n  if (s) {\n    if (!s.locationStats) s.locationStats = { verified: 0, outsideRadius: 0, rejected: 0 };\n    if (s.locationStats.needsReview !== undefined) delete s.locationStats.needsReview;\n    if (typeof s.locationStats.rejected !== 'number') s.locationStats.rejected = 0;\n    if (status === 'ACCEPTED') {\n      s.locationStats.verified += 1;\n    } else {\n      s.locationStats.rejected += 1;\n      if (locationStatus === 'OUTSIDE_RADIUS') s.locationStats.outsideRadius += 1;\n    }\n  }\n\n  if (status !== 'ACCEPTED') reason = locationStatus;\n}\n\nconst reference = s && s.location ? s.location : null;\nreturn [{ json: {\n  ...j,\n  valid: status === 'ACCEPTED',\n  status,\n  reason,\n  lecture: s ? s.lecture : '',\n  locationStatus,\n  locationDetail,\n  distanceMeters,\n  accuracyMeters: Number.isFinite(j.studentAccuracy) ? j.studentAccuracy : null,\n  attendanceRadiusMeters: config.radiusMeters,\n  maxAccuracyMeters: config.maxAccuracyMeters,\n  lectureLocationSource,\n  instructorLatitude: reference ? reference.latitude : null,\n  instructorLongitude: reference ? reference.longitude : null,\n  instructorAccuracy: reference && Number.isFinite(reference.accuracy) ? reference.accuracy : null,\n  locationTimestamp: j.studentLocationTimestamp,\n  reviewStatus: status === 'ACCEPTED' ? 'Confirmed' : 'Rejected'\n} }];"
+        "jsCode": "const j = $input.first().json;\nconst s = $getWorkflowStaticData('global').session;\nconst DEFAULT_CONFIG = { radiusMeters: 100, maxAccuracyMeters: 50, maxAgeSeconds: 30 };\nconst config = s && s.locationConfig ? s.locationConfig : DEFAULT_CONFIG;\nconst FUTURE_TIMESTAMP_TOLERANCE_MS = 5000;\n// Attendance is appended to this session's own workbook. The shared prototype\n// sheet is only a fallback for a session that was started before the workbook\n// step existed - a live session always has one, or the start was refused.\nconst FALLBACK_SHEET_ID = '1W4Q8HrjGveP1jrjUzwho9aO7nRPPPDwwhfW7C1fdbD0';\nconst sessionWorkbook = s && s.workbook && s.workbook.id ? s.workbook : null;\nconst workbookId = sessionWorkbook ? sessionWorkbook.id : FALLBACK_SHEET_ID;\nconst ROUND = value => Math.round(value * 100) / 100;\n\n// ---- Security checks first (unchanged behaviour) ----\nlet reason = '';\nif (j.sig !== j.expectedSig) reason = 'BAD_TICKET';\nelse if (!Number.isFinite(j.exp) || Date.now() > j.exp) reason = 'TICKET_EXPIRED';\nelse if (!s || !s.active || s.sessionId !== j.sessionId) reason = 'SESSION_CLOSED';\nelse if (!j.name || !j.studentId || !j.email) reason = 'MISSING_FIELDS';\nelse if (!j.deviceId) reason = 'DEVICE_ID_REQUIRED';\nelse if (!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(j.email)) reason = 'BAD_EMAIL';\nconst securityOk = reason === '';\n\n// ---- Location decision: ACCEPTED or REJECTED, never \"needs review\" ----\nlet status = 'REJECTED';\nlet locationStatus = 'LOCATION_UNAVAILABLE';\nlet locationDetail = '';\nlet distanceMeters = null;\nlet accuracyMeters = null;\nlet lectureLocationSource = null;\n\nif (securityOk) {\n  const now = Date.now();\n  const reference = s && s.location ? s.location : null;\n  const referenceValid = reference\n    && Number.isFinite(reference.latitude) && Number.isFinite(reference.longitude)\n    && reference.latitude >= -90 && reference.latitude <= 90\n    && reference.longitude >= -180 && reference.longitude <= 180;\n\n  const values = [j.studentLatitude, j.studentLongitude, j.studentAccuracy, j.studentLocationTimestamp];\n  const missing = values.some(value => value === undefined || value === null || Number.isNaN(value));\n  const finite = values.every(Number.isFinite);\n  const coordinatesValid = finite && j.studentLatitude >= -90 && j.studentLatitude <= 90 && j.studentLongitude >= -180 && j.studentLongitude <= 180;\n  const timestampInFuture = finite && j.studentLocationTimestamp > now + FUTURE_TIMESTAMP_TOLERANCE_MS;\n  const studentAgeMs = finite ? Math.max(0, now - j.studentLocationTimestamp) : null;\n\n  if (!referenceValid) {\n    locationStatus = 'LECTURE_LOCATION_INVALID';\n    locationDetail = 'The session has no valid confirmed lecture-hall reference. Ask the instructor to confirm the lecture location again.';\n  } else if (missing) {\n    locationStatus = 'LOCATION_UNAVAILABLE';\n    locationDetail = 'The submission did not include a complete location reading.';\n  } else if (!finite || !coordinatesValid || j.studentAccuracy <= 0 || timestampInFuture) {\n    locationStatus = 'INVALID_LOCATION';\n    locationDetail = !finite\n      ? 'The location fields were not numeric.'\n      : timestampInFuture\n        ? 'The student reading timestamp is in the future.'\n        : j.studentAccuracy <= 0\n          ? 'The reported accuracy was not a positive distance.'\n          : 'Coordinates were outside the valid latitude/longitude ranges.';\n  } else if (studentAgeMs > config.maxAgeSeconds * 1000) {\n    locationStatus = 'STALE_LOCATION';\n    locationDetail = 'The student reading was ' + (studentAgeMs / 1000).toFixed(1) + ' s old; the limit is ' + config.maxAgeSeconds + ' s.';\n  } else if (j.studentAccuracy > config.maxAccuracyMeters) {\n    locationStatus = 'LOW_ACCURACY';\n    accuracyMeters = j.studentAccuracy;\n    locationDetail = 'The student reading reported +/-' + Math.round(j.studentAccuracy) + ' m, worse than the ' + config.maxAccuracyMeters + ' m accuracy limit.';\n  } else {\n    accuracyMeters = j.studentAccuracy;\n    // Haversine great-circle distance against the professor's confirmed\n    // lecture-hall reference (mean Earth radius 6371000 m).\n    const toRadians = value => value * Math.PI / 180;\n    const earthRadius = 6371000;\n    const dLat = toRadians(j.studentLatitude - reference.latitude);\n    const dLon = toRadians(j.studentLongitude - reference.longitude);\n    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRadians(reference.latitude)) * Math.cos(toRadians(j.studentLatitude)) * Math.sin(dLon / 2) ** 2;\n    const preciseDistance = 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));\n    distanceMeters = ROUND(preciseDistance);\n    if (preciseDistance <= config.radiusMeters) {\n      status = 'ACCEPTED';\n      locationStatus = 'VERIFIED';\n      locationDetail = 'Within the ' + config.radiusMeters + ' m attendance radius (' + distanceMeters + ' m).';\n    } else {\n      locationStatus = 'OUTSIDE_RADIUS';\n      locationDetail = 'Outside the ' + config.radiusMeters + ' m attendance radius (' + distanceMeters + ' m).';\n    }\n  }\n\n  if (reference) {\n    lectureLocationSource = reference.source || 'map';\n  }\n\n  // Session counters (verified + rejected attempts).\n  if (s) {\n    if (!s.locationStats) s.locationStats = { verified: 0, outsideRadius: 0, rejected: 0 };\n    if (s.locationStats.needsReview !== undefined) delete s.locationStats.needsReview;\n    if (typeof s.locationStats.rejected !== 'number') s.locationStats.rejected = 0;\n    if (status === 'ACCEPTED') {\n      s.locationStats.verified += 1;\n    } else {\n      s.locationStats.rejected += 1;\n      if (locationStatus === 'OUTSIDE_RADIUS') s.locationStats.outsideRadius += 1;\n    }\n  }\n\n  if (status !== 'ACCEPTED') reason = locationStatus;\n}\n\nconst reference = s && s.location ? s.location : null;\nreturn [{ json: {\n  ...j,\n  valid: status === 'ACCEPTED',\n  status,\n  reason,\n  lecture: s ? s.lecture : '',\n  locationStatus,\n  locationDetail,\n  distanceMeters,\n  accuracyMeters: Number.isFinite(j.studentAccuracy) ? j.studentAccuracy : null,\n  attendanceRadiusMeters: config.radiusMeters,\n  maxAccuracyMeters: config.maxAccuracyMeters,\n  lectureLocationSource,\n  instructorLatitude: reference ? reference.latitude : null,\n  instructorLongitude: reference ? reference.longitude : null,\n  instructorAccuracy: reference && Number.isFinite(reference.accuracy) ? reference.accuracy : null,\n  locationTimestamp: j.studentLocationTimestamp,\n  reviewStatus: status === 'ACCEPTED' ? 'Confirmed' : 'Rejected',\n  workbookId,\n  workbookTab: sessionWorkbook ? sessionWorkbook.tab : 'Attendance',\n  workbookIsFallback: !sessionWorkbook\n} }];"
       },
       "id": "32e03352-64c4-42b4-abe1-8bf23939e74b",
       "name": "Validate Submission",
@@ -378,7 +378,7 @@
         "operation": "read",
         "documentId": {
           "__rl": true,
-          "value": "1W4Q8HrjGveP1jrjUzwho9aO7nRPPPDwwhfW7C1fdbD0",
+          "value": "={{ $('Validate Submission').first().json.workbookId }}",
           "mode": "id"
         },
         "sheetName": {
@@ -477,7 +477,7 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "1W4Q8HrjGveP1jrjUzwho9aO7nRPPPDwwhfW7C1fdbD0",
+          "value": "={{ $('Validate Submission').first().json.workbookId }}",
           "mode": "id"
         },
         "sheetName": {
@@ -834,7 +834,7 @@
         "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "1W4Q8HrjGveP1jrjUzwho9aO7nRPPPDwwhfW7C1fdbD0",
+          "value": "={{ $('Validate Submission').first().json.workbookId }}",
           "mode": "id"
         },
         "sheetName": {
@@ -1069,6 +1069,293 @@
         1100,
         1100
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "96c1ebad-a69b-44f0-bf3d-81c4a8e54790",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "start-ok",
+      "name": "Start OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        528,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "spreadsheet",
+        "operation": "create",
+        "title": "={{ $('Create Session').first().json.workbookTitle }}",
+        "sheetsUi": {
+          "sheetValues": [
+            {
+              "title": "={{ $('Create Session').first().json.workbookTab }}",
+              "hidden": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "create-attendance-workbook",
+      "name": "Create Attendance Workbook",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        784,
+        -112
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0FjaveI9h7tDArdS",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turns the fresh spreadsheet into this session's Attendance workbook:\n// the header row, the plain-text Student ID column and the frozen header row.\n// Nothing is written here - the two HTTP nodes that follow send these bodies.\nconst XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';\nconst create = $input.first().json;\nconst start = $('Create Session').first().json;\n\nconst spreadsheetId = create.spreadsheetId;\nif (!spreadsheetId) {\n  const err = create.error || {};\n  return [{ json: {\n    ok: false,\n    error: 'WORKBOOK_CREATE_FAILED',\n    detail: String(err.message || err.description || 'The attendance spreadsheet could not be created.')\n  } }];\n}\n\nconst headers = Array.isArray(start.attendanceHeaders) ? start.attendanceHeaders.filter(h => String(h).trim() !== '') : [];\nif (!headers.length) {\n  return [{ json: { ok: false, error: 'WORKBOOK_INVALID_HEADERS', detail: 'The session did not provide the Attendance column list.' } }];\n}\n\nconst tab = String(start.workbookTab || 'Attendance');\nconst sheets = Array.isArray(create.sheets) ? create.sheets : [];\nconst firstSheet = sheets[0] && sheets[0].properties ? sheets[0].properties : {};\nconst sheetId = Number.isFinite(firstSheet.sheetId) ? firstSheet.sheetId : 0;\n\n// 0 -> A, 25 -> Z, 26 -> AA ...\nconst columnLetter = index => {\n  let n = index;\n  let letters = '';\n  do {\n    letters = String.fromCharCode(65 + (n % 26)) + letters;\n    n = Math.floor(n / 26) - 1;\n  } while (n >= 0);\n  return letters;\n};\n\nconst range = tab + '!A1:' + columnLetter(headers.length - 1) + '1';\nconst studentIdColumn = headers.indexOf('Student ID');\nconst requests = [\n  {\n    repeatCell: {\n      range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: headers.length },\n      cell: { userEnteredFormat: { textFormat: { bold: true } } },\n      fields: 'userEnteredFormat.textFormat.bold'\n    }\n  },\n  {\n    updateSheetProperties: {\n      properties: { sheetId, gridProperties: { frozenRowCount: 1 } },\n      fields: 'gridProperties.frozenRowCount'\n    }\n  }\n];\n// Student IDs are identifiers, not numbers: keep leading zeros.\nif (studentIdColumn >= 0) {\n  requests.splice(1, 0, {\n    repeatCell: {\n      range: { sheetId, startRowIndex: 1, endRowIndex: 1001, startColumnIndex: studentIdColumn, endColumnIndex: studentIdColumn + 1 },\n      cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },\n      fields: 'userEnteredFormat.numberFormat'\n    }\n  });\n}\n\nreturn [{ json: {\n  ok: true,\n  workbookId: spreadsheetId,\n  tab,\n  sheetId,\n  headers,\n  range,\n  title: (create.properties && create.properties.title) || start.workbookTitle,\n  url: create.spreadsheetUrl || ('https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/edit'),\n  xlsxUrl: 'https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/export?format=xlsx',\n  exportUrl: 'https://www.googleapis.com/drive/v3/files/' + spreadsheetId + '/export?mimeType=' + encodeURIComponent(XLSX_MIME),\n  valuesUrl: 'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + '/values/' + range,\n  batchUpdateUrl: 'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + ':batchUpdate',\n  headerBody: { values: [headers] },\n  formatBody: { requests }\n} }];"
+      },
+      "id": "prepare-sheet-setup",
+      "name": "Prepare Sheet Setup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('Prepare Sheet Setup').first().json.valuesUrl }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "valueInputOption",
+              "value": "RAW"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Prepare Sheet Setup').first().json.headerBody) }}",
+        "options": {}
+      },
+      "id": "write-attendance-headers",
+      "name": "Write Attendance Headers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1296,
+        -112
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0FjaveI9h7tDArdS",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Prepare Sheet Setup').first().json.batchUpdateUrl }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Prepare Sheet Setup').first().json.formatBody) }}",
+        "options": {}
+      },
+      "id": "format-attendance-sheet",
+      "name": "Format Attendance Sheet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1552,
+        -112
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0FjaveI9h7tDArdS",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The session only goes live once its own workbook exists and has the\n// Attendance header row. Otherwise attendance would have nowhere to be\n// written, so the start is rolled back instead of half-starting.\nconst prep = $('Prepare Sheet Setup').first().json;\nconst headerWrite = $('Write Attendance Headers').first().json;\nconst formatWrite = $('Format Attendance Sheet').first().json;\nconst plan = $('Create Session').first().json;\nconst { workbookTitle, workbookTab, attendanceHeaders, ...start } = plan;\nconst wf = $getWorkflowStaticData('global');\nconst failDetail = value => (value && value.error && (value.error.message || value.error.description)) || '';\n\nconst abort = (error, detail, extra = {}) => {\n  delete wf.session;\n  return [{ json: Object.assign({ ok: false, error, detail: String(detail || '') }, extra) }];\n};\n\nif (!prep || !prep.ok || !prep.workbookId) {\n  return abort((prep && prep.error) || 'WORKBOOK_CREATE_FAILED', prep && prep.detail);\n}\nif (!headerWrite || headerWrite.error || !headerWrite.updatedRange) {\n  return abort('WORKBOOK_SETUP_FAILED', failDetail(headerWrite) || 'The Attendance header row could not be written.', { sheetUrl: prep.url });\n}\n\nconst workbook = {\n  id: prep.workbookId,\n  tab: prep.tab,\n  title: prep.title,\n  url: prep.url,\n  xlsxUrl: prep.xlsxUrl,\n  headers: prep.headers,\n  createdAt: Date.now(),\n  // Cosmetic-only: bold + frozen header and the plain-text Student ID column.\n  formatted: Boolean(formatWrite && !formatWrite.error && formatWrite.replies)\n};\n\nif (wf.session) wf.session.workbook = workbook;\nconst history = Array.isArray(wf.workbooks) ? wf.workbooks : [];\nhistory.push({\n  sessionId: wf.session ? wf.session.sessionId : start.sessionId,\n  lecture: wf.session ? wf.session.lecture : start.lecture,\n  id: workbook.id,\n  tab: workbook.tab,\n  title: workbook.title,\n  url: workbook.url,\n  xlsxUrl: workbook.xlsxUrl,\n  createdAt: workbook.createdAt\n});\nwf.workbooks = history.slice(-20);\n\nreturn [{ json: Object.assign({}, start, {\n  attendanceSheet: {\n    sessionId: wf.session ? wf.session.sessionId : start.sessionId,\n    tab: workbook.tab,\n    title: workbook.title,\n    url: workbook.url,\n    xlsxUrl: workbook.xlsxUrl\n  }\n}) }];"
+      },
+      "id": "activate-session",
+      "name": "Activate Session",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "path": "dqr-export",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "webhook-export",
+      "name": "Webhook Export",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1408
+      ],
+      "webhookId": "1769f1e8-2564-49a4-957c-030aa0dbe00d"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Serves the .xlsx of a session's workbook through n8n, so the download works\n// with the workflow's Google credential and not the browser's Google account.\nconst KEY = 'MySecretyKey2005';\nconst XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';\nconst q = $input.first().json.query || {};\nif (q.key !== KEY) return [{ json: { ok: false, error: 'unauthorized', responseCode: 401 } }];\n\nconst wf = $getWorkflowStaticData('global');\nconst wanted = String(q.s || '').trim();\nconst history = Array.isArray(wf.workbooks) ? wf.workbooks : [];\nconst fromSession = wb => ({\n  sessionId: wf.session.sessionId, id: wb.id, tab: wb.tab,\n  title: wb.title, url: wb.url, xlsxUrl: wb.xlsxUrl\n});\n\nlet entry = null;\nif (wanted) {\n  const matches = history.filter(item => item && item.sessionId === wanted && item.id);\n  entry = matches.length ? matches[matches.length - 1] : null;\n  if (!entry && wf.session && wf.session.sessionId === wanted && wf.session.workbook) {\n    entry = fromSession(wf.session.workbook);\n  }\n} else if (wf.session && wf.session.workbook) {\n  entry = fromSession(wf.session.workbook);\n} else if (history.length) {\n  entry = history[history.length - 1];\n}\n\nif (!entry || !entry.id) {\n  return [{ json: {\n    ok: false,\n    error: 'SHEET_NOT_FOUND',\n    responseCode: 404,\n    detail: wanted ? 'No attendance sheet is stored for session ' + wanted + '.' : 'No attendance sheet has been created yet.'\n  } }];\n}\n\nconst safeName = value => String(value).replace(/[\\\\/:*?\"<>|]/g, '-').replace(/\\s+/g, ' ').trim().slice(0, 120);\nreturn [{ json: {\n  ok: true,\n  workbookId: entry.id,\n  sessionId: entry.sessionId,\n  sheetUrl: entry.url || null,\n  fileName: (safeName(entry.title) || ('Attendance-' + entry.sessionId)) + '.xlsx',\n  exportUrl: 'https://www.googleapis.com/drive/v3/files/' + entry.id + '/export?mimeType=' + encodeURIComponent(XLSX_MIME)\n} }];"
+      },
+      "id": "resolve-export",
+      "name": "Resolve Export",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        1408
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ef6f074b-0584-4987-91dd-d091aaeeadc2",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "export-ready",
+      "name": "Export Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        528,
+        1408
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.exportUrl }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "export-xlsx",
+      "name": "Export XLSX",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        784,
+        1344
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0FjaveI9h7tDArdS",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "responseDataSource": "set",
+        "inputFieldName": "data",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-xlsx",
+      "name": "Respond XLSX",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        1344
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: $json.error || 'EXPORT_FAILED', detail: $json.detail || ($json.message ? String($json.message) : ''), sheetUrl: $json.sheetUrl || null } }}",
+        "options": {
+          "responseCode": "={{ Number($json.responseCode) || 502 }}"
+        }
+      },
+      "id": "respond-export-error",
+      "name": "Respond Export Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        784,
+        1472
+      ]
     }
   ],
   "pinData": {},
@@ -1088,7 +1375,7 @@
       "main": [
         [
           {
-            "node": "Respond Start",
+            "node": "Start OK?",
             "type": "main",
             "index": 0
           }
@@ -1367,6 +1654,137 @@
         [
           {
             "node": "Respond Submit Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start OK?": {
+      "main": [
+        [
+          {
+            "node": "Create Attendance Workbook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Attendance Workbook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sheet Setup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Sheet Setup": {
+      "main": [
+        [
+          {
+            "node": "Write Attendance Headers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Attendance Headers": {
+      "main": [
+        [
+          {
+            "node": "Format Attendance Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Attendance Sheet": {
+      "main": [
+        [
+          {
+            "node": "Activate Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Activate Session": {
+      "main": [
+        [
+          {
+            "node": "Respond Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Export": {
+      "main": [
+        [
+          {
+            "node": "Resolve Export",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Export": {
+      "main": [
+        [
+          {
+            "node": "Export Ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export Ready?": {
+      "main": [
+        [
+          {
+            "node": "Export XLSX",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Export Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export XLSX": {
+      "main": [
+        [
+          {
+            "node": "Respond XLSX",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Export Error",
             "type": "main",
             "index": 0
           }

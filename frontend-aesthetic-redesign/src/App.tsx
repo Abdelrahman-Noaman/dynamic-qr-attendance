@@ -40,6 +40,7 @@ export default function App() {
     { label: "Tokens served", value: hasKey ? String(a.tokensServed).padStart(2, "0") : "—" },
     { label: "Verified", value: a.qr ? String(a.locationStats.verified) : "—" },
     { label: "Rejected", value: a.qr ? String(a.locationStats.rejected) : "—" },
+    { label: "Sheet", value: a.attendanceSheet ? a.attendanceSheet.tab : "not created" },
     {
       label: "Lecture hall",
       value: a.lectureLocation ? formatCoordinates(a.lectureLocation) : "not confirmed",
@@ -82,6 +83,9 @@ export default function App() {
                 maxAccuracyMeters={MAX_GPS_ACCURACY_METERS}
                 onConfirmLectureLocation={a.confirmLectureLocation}
                 onClearLectureLocation={a.clearLectureLocation}
+                attendanceSheet={a.attendanceSheet}
+                sheetDownload={a.sheetDownload}
+                onDownloadSheet={a.downloadSessionSheet}
               />
             ) : (
               <KeyGate />

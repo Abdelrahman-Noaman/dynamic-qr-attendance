@@ -28,5 +28,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "vite.config.ts", "../frontend/location-core.js"]
+  "include": ["src", "vite.config.ts", "../frontend/location-core.js", "../frontend/session-sheet.js"]
 }

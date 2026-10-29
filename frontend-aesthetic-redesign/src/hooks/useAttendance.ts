@@ -9,6 +9,15 @@ import {
   saveLectureLocation,
   type LectureLocation,
 } from "../utils/lectureLocation";
+import {
+  isSpreadsheetResponse,
+  readSessionSheet,
+  sessionSheetExportEndpoint,
+  sessionSheetFileName,
+  triggerDownload,
+  type SessionSheet,
+  type SheetDownloadNotice,
+} from "../utils/sessionSheet";
 
 /** Student-side accuracy ceiling and attendance radius (server-owned values). */
 export const MAX_GPS_ACCURACY_METERS = LOCATION_QUALITY.targetAccuracyMeters;
@@ -56,6 +65,8 @@ interface ApiResponse {
   attendanceRadiusMeters?: number;
   locationStats?: QrPayload["locationStats"];
   lectureLocation?: QrPayload["lectureLocation"];
+  /** The workbook created for this session, sent by start / qr / stop. */
+  attendanceSheet?: Partial<SessionSheet> | null;
 }
 
 class ApiRequestError extends Error {
@@ -127,6 +138,11 @@ export function useAttendance(key: string | null) {
     rejected: 0,
   });
   const [attendanceRadiusMeters, setAttendanceRadiusMeters] = useState(100);
+  // The workbook this session writes to. The workflow creates it on Start and
+  // reports it again on the QR poll and on Stop, so the panel survives a
+  // refresh and the professor can still download the sheet after stopping.
+  const [attendanceSheet, setAttendanceSheet] = useState<SessionSheet | null>(null);
+  const [sheetDownload, setSheetDownload] = useState<SheetDownloadNotice>({ state: "idle", message: "" });
 
   const runningRef = useRef(false);
   const stoppingRef = useRef(false);
@@ -153,6 +169,13 @@ export function useAttendance(key: string | null) {
     lastTokenRef.current = null;
   }, []);
 
+  /** Picks up the session workbook whenever the workflow reports one. */
+  const applySheet = useCallback((data: ApiResponse) => {
+    const sheet = readSessionSheet(data.attendanceSheet);
+    if (!sheet) return;
+    setAttendanceSheet((current) => (current && current.url === sheet.url ? current : sheet));
+  }, []);
+
   const showQR = useCallback((data: ApiResponse) => {
     const sessionId = String(data.sessionId ?? "");
     const token = String(data.token ?? "");
@@ -171,7 +194,8 @@ export function useAttendance(key: string | null) {
       seq: seqRef.current,
       locationStats: data.locationStats || locationStats,
     });
-  }, [locationStats]);
+    applySheet(data);
+  }, [applySheet, locationStats]);
 
   // Active session → show QR, lock controls, and schedule the next token fetch
   const applyActive = useCallback(
@@ -229,6 +253,9 @@ export function useAttendance(key: string | null) {
       }
 
       if (!data.active) {
+        // A stopped session still reports its workbook, so a refresh after the
+        // stop keeps the download available.
+        applySheet(data);
         if (!runningRef.current) {
           hideQR();
           return;
@@ -259,7 +286,7 @@ export function useAttendance(key: string | null) {
       );
       refreshTimer.current = window.setTimeout(() => fetchQRRef.current(), 5000);
     }
-  }, [key, applyActive, hideQR, setRunning, setStatus]);
+  }, [key, applyActive, applySheet, hideQR, setRunning, setStatus]);
 
   useEffect(() => {
     fetchQRRef.current = fetchQR;
@@ -356,8 +383,10 @@ export function useAttendance(key: string | null) {
         setStatus(
           reason === "unauthorized"
             ? "Session start rejected: wrong key"
-            : `Session start rejected: ${reason}`,
-          "error"
+            : reason.startsWith("WORKBOOK_")
+              ? `Session not started — its attendance sheet could not be created (${reason})`
+              : `Session start rejected: ${reason}`,
+          "error",
         );
         setStartDisabled(false);
         setStarting(false);
@@ -369,7 +398,14 @@ export function useAttendance(key: string | null) {
       setStarting(false);
       setStopDisabled(false);
       setLectureDisabled(true);
-      setStatus("Session started — reference: the confirmed lecture hall", "running");
+      setSheetDownload({ state: "idle", message: "" });
+      applySheet(data);
+      setStatus(
+        data.attendanceSheet
+          ? "Session started — a fresh attendance sheet was created for it"
+          : "Session started — reference: the confirmed lecture hall",
+        "running",
+      );
       await fetchQR();
     } catch (error) {
       setStatus(
@@ -386,6 +422,7 @@ export function useAttendance(key: string | null) {
     lecture,
     lectureLocation,
     fetchQR,
+    applySheet,
     setRunning,
     setStatus,
   ]);
@@ -400,7 +437,10 @@ export function useAttendance(key: string | null) {
     setStatus("Stopping…", "stopped");
 
     try {
-      await apiPost("dqr-stop", { key });
+      const data = await apiPost("dqr-stop", { key });
+      // Stop answers with the session's workbook so the professor can open and
+      // download it right away.
+      applySheet(data);
     } catch (error) {
       setStatus(
         error instanceof ApiRequestError
@@ -443,7 +483,46 @@ export function useAttendance(key: string | null) {
         finishStopped("Session stopped (couldn't verify)");
       }
     }, 1500);
-  }, [key, fetchQR, applyActive, hideQR, setRunning, setStatus]);
+  }, [key, fetchQR, applyActive, applySheet, hideQR, setRunning, setStatus]);
+
+  // ---- Download the session workbook as .xlsx ----
+  // Primary route: the workflow streams the file with its own Google
+  // credential, so it works no matter which Google account is signed in here.
+  // Fallback: Google's own export URL, which uses the browser's session.
+  const downloadSessionSheet = useCallback(async () => {
+    const sheet = attendanceSheet;
+    if (!key || !sheet) return;
+
+    setSheetDownload({ state: "busy", message: "Preparing the .xlsx…" });
+
+    try {
+      const res = await fetch(
+        sessionSheetExportEndpoint(N8N, { key, sessionId: sheet.sessionId }),
+      );
+      const contentType = res.headers.get("content-type") || "";
+      if (!isSpreadsheetResponse(res.status, contentType)) {
+        throw new ApiRequestError(`Export failed (${res.status})`, res.status);
+      }
+      const blob = await res.blob();
+      if (!triggerDownload(blob, sessionSheetFileName(sheet))) {
+        throw new ApiRequestError("The browser blocked the download", 0);
+      }
+      setSheetDownload({ state: "saved", message: `${sessionSheetFileName(sheet)} saved` });
+    } catch {
+      if (!sheet.xlsxUrl) {
+        setSheetDownload({
+          state: "error",
+          message: "Download failed — open the sheet and use File ▸ Download ▸ Microsoft Excel.",
+        });
+        return;
+      }
+      window.open(sheet.xlsxUrl, "_blank", "noopener,noreferrer");
+      setSheetDownload({
+        state: "fallback",
+        message: "The workflow could not stream the file — opened Google's Excel export instead.",
+      });
+    }
+  }, [attendanceSheet, key]);
 
   return {
     lecture,
@@ -464,6 +543,9 @@ export function useAttendance(key: string | null) {
     clearLectureLocation,
     attendanceRadiusMeters,
     locationStats,
+    attendanceSheet,
+    sheetDownload,
+    downloadSessionSheet,
     startSession,
     stopSession,
   };

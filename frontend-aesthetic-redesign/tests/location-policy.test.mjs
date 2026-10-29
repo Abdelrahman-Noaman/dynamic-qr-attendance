@@ -6,6 +6,7 @@
 // lecture-location.test.mjs.
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import test from "node:test";
 
 import {
   assessStudentAttendance,
@@ -93,7 +94,12 @@ assert.doesNotMatch(createSession.parameters.jsCode, /LOCATION_QUALITY_POLICY/);
 assert.doesNotMatch(validateSubmission.parameters.jsCode, /NEEDS_REVIEW|Needs Review/);
 assert.match(rotateQr.parameters.jsCode, /s\.token = rand\(6\)/);
 assert.ok(workflow.connections["Webhook Start"].main[0].some((edge) => edge.node === "Create Session"));
-assert.ok(workflow.connections["Create Session"].main[0].some((edge) => edge.node === "Respond Start"));
+// A start now runs through the per-session workbook before it is answered, and
+// a rejected start is answered straight away without creating a spreadsheet.
+assert.ok(workflow.connections["Create Session"].main[0].some((edge) => edge.node === "Start OK?"));
+assert.ok(workflow.connections["Start OK?"].main[0].some((edge) => edge.node === "Create Attendance Workbook"));
+assert.ok(workflow.connections["Start OK?"].main[1].some((edge) => edge.node === "Respond Start"));
+assert.ok(workflow.connections["Activate Session"].main[0].some((edge) => edge.node === "Respond Start"));
 
 const assess = ({ instructor, student, radius = 100, maxAccuracy = 50, maxAge = 30, now = 1_000_000 }) => {
   if (!instructor || !student) return { locationStatus: "REJECTED", reason: "LOCATION_UNAVAILABLE" };
@@ -103,7 +109,7 @@ const assess = ({ instructor, student, radius = 100, maxAccuracy = 50, maxAge = 
   if (now - student.timestamp > maxAge * 1000) {
     return { locationStatus: "REJECTED", reason: "STALE_LOCATION" };
   }
-  const distanceMeters = distance(instructor, student);
+  const distanceMeters = haversineMeters(instructor, student);
   return distanceMeters <= radius
     ? { locationStatus: "VERIFIED", reason: "", distanceMeters }
     : { locationStatus: "REJECTED", reason: "OUTSIDE_RADIUS", distanceMeters };
@@ -143,7 +149,7 @@ test("missing and stale readings are rejected", () => {
 });
 
 test("supplied coordinates calculate to 101.5965363156 m", () => {
-  const result = distance(
+  const result = haversineMeters(
     { latitude: 29.99625519, longitude: 30.96586222 },
     { latitude: 29.9963212, longitude: 30.96691445 }
   );
@@ -151,6 +157,7 @@ test("supplied coordinates calculate to 101.5965363156 m", () => {
 });
 
 test("workflow uses strict outcomes and preserves security checks", () => {
+  const validateCode = validateSubmission.parameters.jsCode;
   assert.match(validateCode, /OUTSIDE_RADIUS/);
   assert.match(validateCode, /LOW_ACCURACY/);
   assert.match(validateCode, /TICKET_EXPIRED/);
