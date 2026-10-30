@@ -822,40 +822,6 @@ The system should be tested against both successful and invalid flows.
 
 ---
 
-## ⚠️ Known Limitations
-
-This system improves the security properties of static QR attendance, but it **does not prove physical presence**. A valid QR can still be relayed to another person during its short lifetime.
-
-The current prototype also has several intentional limitations:
-
-- One active session in the workflow state model
-- Shared professor key
-- Wildcard webhook origins
-- Google Sheets instead of a transactional database
-- Basic email syntax validation
-- No university-domain enforcement
-- No dedicated production secrets manager
-- n8n workflow static data for session state
-- No strong physical-presence verification
-- Browser geolocation can be spoofed and does not prove presence
-- `enableHighAccuracy` only requests the platform's best fix; reported accuracy
-  remains an estimate and cannot be guaranteed, especially indoors
-- The lecture-hall reference is a map pin chosen by the professor; it is not
-  cryptographic proof of the professor's presence, and a professor could pin the
-  wrong room (checking the pin is an operational control)
-- One spreadsheet per session accumulates in the Google account behind the
-  workflow credential; the workflow never deletes them (archive or clean up in
-  Drive)
-- The `/dqr-export` download is protected by the shared professor key only, so
-  anyone holding that key can download the most recent session sheet
-- Rejected attempts are not written to Sheets, so the audit trail there only
-  contains verified attendance
-- n8n workflow static data is not transaction-safe under multi-instance
-  concurrency; use a database-backed session and uniqueness constraint at scale
-
-These limitations are documented because the project is intended as a **practical prototype**, not a production attendance platform.
-
----
 
 ## 🔮 Future Improvements
 
