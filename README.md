@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://youtu.be/mqqjV_AJU3U">
+  <a href="https://youtu.be/6oHII9qabew">
     <img src="https://img.shields.io/badge/▶_Watch_Demo-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch Demo">
   </a>
   <img src="https://img.shields.io/badge/n8n-Automation-EA4B71?style=for-the-badge&logo=n8n&logoColor=white" alt="n8n">
@@ -47,9 +47,9 @@
 ## 🎥 Demo
 
 <p align="center">
-  <a href="https://youtu.be/mqqjV_AJU3U">
+  <a href="https://youtu.be/6oHII9qabew">
     <img
-      src="https://img.youtube.com/vi/mqqjV_AJU3U/hqdefault.jpg"
+      src="https://img.youtube.com/vi/6oHII9qabew/hqdefault.jpg"
       alt="Dynamic QR Attendance System Demo"
       width="850"
     />
@@ -908,9 +908,9 @@ The walkthrough covers the project problem, a live system demo, and the n8n work
 ```
 
 <p align="center">
-  <a href="https://youtu.be/mqqjV_AJU3U">
+  <a href="https://youtu.be/6oHII9qabew">
     <img
-      src="https://img.youtube.com/vi/mqqjV_AJU3U/hqdefault.jpg"
+      src="https://img.youtube.com/vi/6oHII9qabew/hqdefault.jpg"
       alt="Watch Project Walkthrough"
       width="800"
     />
