@@ -254,7 +254,7 @@ export function QrStage({ qr, frozen, locked, lectureName, tokenNo }: Props) {
 
         {/* ---------- Countdown ---------- */}
         <div className="mt-9 px-1">
-          <Countdown active={live} frozen={frozen} durationMs={qr?.durationMs ?? 10000} seq={qr?.seq ?? 0} />
+          <Countdown active={live} frozen={frozen} durationMs={qr?.durationMs ?? 15000} seq={qr?.seq ?? 0} />
         </div>
       </div>
     </div>

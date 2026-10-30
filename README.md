@@ -76,7 +76,7 @@ This project explores a lightweight alternative:
 
 > **What if the QR code itself expired before it could be reused?**
 
-The system generates **short-lived QR tokens** that rotate approximately every **10 seconds**.
+The system generates **short-lived QR tokens** that rotate approximately every **15 seconds**.
 
 When a student scans the QR:
 
@@ -147,15 +147,15 @@ the system continuously rotates the underlying token:
 ```text
 TOKEN #1
    │
-   ├── Valid ~10 seconds
+   ├── Valid ~15 seconds
    ▼
 TOKEN #2
    │
-   ├── Valid ~10 seconds
+   ├── Valid ~15 seconds
    ▼
 TOKEN #3
    │
-   ├── Valid ~10 seconds
+   ├── Valid ~15 seconds
    ▼
 TOKEN #4
    │
@@ -173,7 +173,7 @@ The important part is that **expiration is enforced by the backend**, not just b
 
 | Feature | Description |
 |---|---|
-| 🔄 **Dynamic QR** | QR tokens rotate approximately every 10 seconds |
+| 🔄 **Dynamic QR** | QR tokens rotate approximately every 15 seconds |
 | ⏱️ **Short-lived tokens** | Expired tokens are rejected by the backend |
 | 🔐 **Signed tickets** | HMAC-SHA256 protects temporary attendance tickets |
 | 🛡️ **Server-side validation** | The browser is never trusted |
@@ -195,7 +195,7 @@ The system uses multiple validation layers rather than trusting the QR code alon
 
 #### 1. Short-Lived QR Token
 
-Each QR token is valid for approximately 10 seconds.
+Each QR token is valid for approximately 15 seconds.
 
 ```text
 Issued:  12:30:00

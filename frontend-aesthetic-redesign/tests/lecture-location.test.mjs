@@ -436,8 +436,8 @@ test("Rotate If Needed exposes the confirmed hall and the new counters", () => {
   assert.equal(output.lectureLocation.source, "map");
   assert.deepEqual(output.locationStats, { verified: 0, outsideRadius: 0, rejected: 0 });
   assert.equal("needsReview" in output.locationStats, false);
-  // 10 s rotation contract is untouched.
-  assert.ok(output.expiresInMs > 0 && output.expiresInMs <= 10_000);
+  // QR tokens rotate within the configured 15 s lifetime.
+  assert.ok(output.expiresInMs > 0 && output.expiresInMs <= 15_000);
 });
 
 test("the workflow contains no Needs Review outcome any more", () => {

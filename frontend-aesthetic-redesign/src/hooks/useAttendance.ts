@@ -192,7 +192,7 @@ export function useAttendance(key: string | null) {
       sessionId,
       token,
       lecture: data.lecture || "Lecture",
-      durationMs: data.expiresInMs || 10000,
+      durationMs: data.expiresInMs || 15000,
       seq: seqRef.current,
       locationStats: data.locationStats || locationStats,
     });
@@ -228,7 +228,7 @@ export function useAttendance(key: string | null) {
       setStatus(`Running — ${data.lecture || "Lecture"}`, "running");
 
       // Schedule next fetch at expiresInMs + 200ms
-      const delay = (data.expiresInMs || 10000) + 200;
+      const delay = (data.expiresInMs || 15000) + 200;
       clearTimeout(refreshTimer.current);
       refreshTimer.current = window.setTimeout(() => fetchQRRef.current(), delay);
     },

@@ -56,7 +56,7 @@ The start step generates a six-character token using an uppercase alphanumeric a
 
 ## 3. Serve and Rotate QR
 
-`GET /dqr-qr` checks the professor key and returns the active session, current token, lecture, and remaining lifetime. The token lifetime is 10 seconds. When the lifetime has elapsed, the old token is overwritten with a new token.
+`GET /dqr-qr` checks the professor key and returns the active session, current token, lecture, and remaining lifetime. The token lifetime is 15 seconds. When the lifetime has elapsed, the old token is overwritten with a new token.
 
 The response also carries `attendanceSheet` (`sessionId`, `tab`, `title`, `url`,
 `xlsxUrl`) so the dashboard can show the workbook while the session is live. An
@@ -65,7 +65,7 @@ The response also carries `attendanceSheet` (`sessionId`, `tab`, `title`, `url`,
 
 ## 4. Validate Student Scan
 
-`GET /dqr-check?s=<session>&t=<token>` verifies that a session is active, the session ID matches, the token is still within its 10-second window, and the token matches the current token. Failures return a reason such as `SESSION_CLOSED`, `WRONG_SESSION`, `TOKEN_EXPIRED`, or `TOKEN_INVALID`.
+`GET /dqr-check?s=<session>&t=<token>` verifies that a session is active, the session ID matches, the token is still within its 15-second window, and the token matches the current token. Failures return a reason such as `SESSION_CLOSED`, `WRONG_SESSION`, `TOKEN_EXPIRED`, or `TOKEN_INVALID`.
 
 ## 5. Generate Temporary Ticket
 
